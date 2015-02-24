@@ -55,11 +55,8 @@ let getGenericMethodArgs (mb : MethodBase) =
 
 let getSpecializationString (compiler : InternalCompiler.ICompiler) ts =
    ts |> Seq.map (fun (t : Type) ->
-      //TODO: Name isn't safe. We really need to keep a dictionary around
-      // to make this safer. Using only the short names if there are no collisions.
       if isPrimitive t then t.Name
-      else JavaScriptNameMapper.mapType t
-   ) 
+      else JavaScriptNameMapper.mapType t) 
    |> String.concat "_"
    |> JavaScriptNameMapper.sanitizeAux
 
@@ -238,7 +235,7 @@ let rec buildRuntimeType (compiler : InternalCompiler.ICompiler) (t : System.Typ
    let typeName = sprintf "t_%s" (JavaScriptNameMapper.mapType t)
    compiler.DefineGlobal typeName (fun var ->
       let expr = netTypeExpr compiler (buildRuntimeType compiler) t
-      compiler.Compile (ReturnStrategies.assignVar var) expr
+      compiler.Compile (InternalCompiler.ReturnStrategy.AssignVar var) expr
    )
 
 let components = 

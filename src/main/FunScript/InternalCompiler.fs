@@ -8,11 +8,18 @@ open Microsoft.FSharp.Quotations
 type Helpers =
    static member Cast(x:obj) : 'a = failwith "never"
 
-type IReturnStrategy =
-   abstract Return: JSExpr -> JSStatement
+type ReturnStrategy =
+    | ReturnFrom
+    | InPlace
+    | AssignVar of Var
+    member strategy.Return expr =
+        match strategy with
+        | ReturnFrom -> Return expr
+        | InPlace -> Do expr
+        | AssignVar var -> Assign(Reference var, expr)
 
 type ICompiler = 
-   abstract Compile: returnStrategy:IReturnStrategy -> expr:Expr -> JSStatement list
+   abstract Compile: returnStrategy: ReturnStrategy -> expr:Expr -> JSStatement list
    abstract ReplacementFor: MethodBase -> Quote.CallType -> MethodInfo option
    abstract NextTempVar: unit -> Var
    abstract DefineGlobal: string -> (Var -> JSStatement list) -> Var
@@ -20,13 +27,13 @@ type ICompiler =
    abstract Globals: JSStatement list
 
 type ICompilerComponent =
-   abstract TryCompile: compiler:ICompiler -> returnStrategy:IReturnStrategy -> expr:Expr -> JSStatement list
+   abstract TryCompile: compiler:ICompiler -> returnStrategy: ReturnStrategy -> expr:Expr -> JSStatement list
 
 type CallReplacer = 
   { Target: MethodBase
     TargetType: Quote.CallType
     Replacement: MethodInfo option
-    TryReplace: ICompiler -> IReturnStrategy -> Expr option * Type [] * Expr list -> JSStatement list }
+    TryReplace: ICompiler -> ReturnStrategy -> Expr option * Type [] * Expr list -> JSStatement list }
 
 type CompilerComponent =
    | CallReplacer of CallReplacer
@@ -177,11 +184,6 @@ type Compiler(components) as this =
             |> Seq.find (fun m -> m.Name = replacementMethod.Name 
                                   && m.IsStatic = replacementMethod.IsStatic // TODO: We may need to make this comparison safer
                                   && m.GetParameters().Length = replacementMethod.GetParameters().Length) 
-
-   member __.Compile returnStrategy expr  = 
-      compile returnStrategy expr
-
-   member __.Globals = getGlobals()
 
    interface ICompiler with
 

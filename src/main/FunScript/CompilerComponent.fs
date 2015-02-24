@@ -8,7 +8,7 @@ open Microsoft.FSharp.Quotations
 /// but not JS. For example, f(if x then y else z)
 let private splitDeclarationFromUsageIfNeeded (compiler:ICompiler) expr =
     let var = compiler.NextTempVar()
-    let statements = compiler.Compile (ReturnStrategies.assignVar var) expr 
+    let statements = compiler.Compile (ReturnStrategy.AssignVar var) expr 
     let statementsArray = statements |> List.toArray
     match statementsArray.[statementsArray.Length - 1] with
     | Assign(Reference v, expr) when v = var ->
@@ -47,7 +47,7 @@ let generateMacro quote genExpr =
             match args with
             | None, _, exprs -> exprs
             | Some expr, _, exprs -> expr::exprs
-        match genExpr split compiler returnStrategy exprs with
+        match genExpr split compiler returnStrategy exprs with  
         | None -> []
         | Some fixedExpr -> compiler.Compile returnStrategy fixedExpr
 

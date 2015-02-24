@@ -43,7 +43,7 @@ let private mutation =
       | Patterns.VarSet(var, Split(valDecl, valRef)) -> 
          [  yield! valDecl
             yield Assign(Reference var, valRef)
-            if returnStrategy = ReturnStrategies.inplace then
+            if returnStrategy = InternalCompiler.ReturnStrategy.InPlace then
                yield returnStrategy.Return Null 
          ]
       | _ -> []

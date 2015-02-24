@@ -1,6 +1,7 @@
 ﻿module FunScript.Compiler
 
 open FunScript
+open InternalCompiler
 
 //TODO: Use IoC here. MiniIoC perhaps? 
 let createComponents(isEventMappingEnabled) =
@@ -42,10 +43,10 @@ type Compiler =
       let shouldCompress = defaultArg shouldCompress false
       let isEventMappingEnabled = defaultArg isEventMappingEnabled true
       let returnStrat = 
-         if defaultArg noReturn false then ReturnStrategies.inplace
-         else ReturnStrategies.returnFrom
+         if defaultArg noReturn false then ReturnStrategy.InPlace
+         else ReturnStrategy.ReturnFrom
       let components = createComponents isEventMappingEnabled
-      let compiler = InternalCompiler.Compiler(adjustComponents components)
+      let compiler = InternalCompiler.Compiler(adjustComponents components) :> ICompiler
       let program = compiler.Compile returnStrat expression
       let reflectedDefs = compiler.Globals
       let block = List.append reflectedDefs program

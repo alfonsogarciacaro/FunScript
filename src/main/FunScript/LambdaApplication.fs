@@ -2,12 +2,15 @@
 
 open AST
 open Microsoft.FSharp.Quotations
+open InternalCompiler
 
 let private application =
    CompilerComponent.create <| fun (|Split|) compiler returnStrategy ->
       function
 
       // TODO: Implement these two optimizations directly in the pipe operator?
+      // TODO: Consider cases like fold or piping to a 3-arity function
+      // TODO: Consider application of curried lambdas to methods (with tupled args)
       | Patterns.Application(Patterns.Lambda(var, (Patterns.Call _ as call)), lambdaArg) ->
         compiler.Compile returnStrategy <| call.Substitute(fun v ->
             if v.Name = var.Name then Some lambdaArg else None)
@@ -39,10 +42,10 @@ let private definition =
       let (|Return|) = compiler.Compile
       function
       | Patterns.Lambda(var, expr) ->
-         let block = compiler.Compile ReturnStrategies.returnFrom expr
+         let block = compiler.Compile ReturnStrategy.ReturnFrom expr
          [ yield returnStrategy.Return <| Lambda([var], Block block) ]
       | Patterns.NewDelegate(_, vars, expr) ->
-         let block = compiler.Compile ReturnStrategies.returnFrom expr
+         let block = compiler.Compile ReturnStrategy.ReturnFrom expr
          [ yield returnStrategy.Return <| Lambda(vars, Block block) ]
       | _ -> []
 

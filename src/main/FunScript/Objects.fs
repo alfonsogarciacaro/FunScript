@@ -34,7 +34,7 @@ let private propertySetter =
          [ yield! objDecl 
            yield! valDecl
            yield Assign(PropertyGet(objRef, JavaScriptNameMapper.sanitizeAux pi.Name), valRef)
-           if returnStrategy = ReturnStrategies.inplace then
+           if returnStrategy = InternalCompiler.ReturnStrategy.InPlace then
                yield returnStrategy.Return Null 
          ]
       | _ -> []

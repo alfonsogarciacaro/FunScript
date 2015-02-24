@@ -6,6 +6,7 @@ open ReflectedDefinitions
 open System.Reflection
 open Microsoft.FSharp.Reflection
 open Microsoft.FSharp.Quotations
+open InternalCompiler
 
 [<Inline; JS>]
 module private Replacements =
@@ -116,13 +117,13 @@ let private coerce =
                               Apply(
                                  Lambda(
                                     objVar::vars,
-                                    Block(compiler.Compile ReturnStrategies.returnFrom lambdaExpr)),
+                                    Block(compiler.Compile ReturnStrategy.ReturnFrom lambdaExpr)),
                                  (impl :: vars) |> List.map Reference))
                         ]))
                   |> Array.toList
                [
                   yield Declare [impl]
-                  yield! compiler.Compile (ReturnStrategies.assignVar impl) expr
+                  yield! compiler.Compile (ReturnStrategy.AssignVar impl) expr
                   yield returnStrategy.Return(Object members)
                ]
             else compiler.Compile returnStrategy expr
@@ -133,7 +134,7 @@ let private getPrimaryConstructorVar compiler (t: System.Type) =
     let cons = t.GetConstructors(BindingFlags.Public |||
                                  BindingFlags.NonPublic |||
                                  BindingFlags.Instance).[0]
-    // Unions must be dealed with in the calling method
+    // Unions must be dealt with in the calling method
     if FSharpType.IsTuple t then
         t.GenericTypeArguments
         |> List.ofArray
@@ -160,13 +161,17 @@ let private typeTest =
           if t = typeof<obj> then
             [ returnStrategy.Return <| Boolean true ]
 
-          // Type information about function signature will be lost
-          elif FSharpType.IsFunction t then
-            returnTypeTest "typeof" (String "function")
+          // TODO: Allow type testing against interfaces? It would be possible
+          // (testing all types implementing the interface) but probably a bad practice
+          elif t.IsInterface then
+            [ returnStrategy.Return <| Boolean false ]
 
-          // Type information about collection generic will be lost
-          // Collections not based on JS arrays won't match this
-          elif typeof<System.Collections.IEnumerable>.IsAssignableFrom t then
+          // TODO: Is this useful or better add a dynamic Invoke method to obj when necessary?
+          // If uncommented, invoking Func with obj[] should compile to multiple arguments
+//          elif t = typeof<System.Func<obj[],obj>> then
+//            returnTypeTest "typeof" (String "function")
+
+          elif typeof<System.Collections.Generic.IList<obj>>.IsAssignableFrom t then
             returnTypeTest "instanceof" (String "Array")
 
           // Primitives
@@ -178,10 +183,6 @@ let private typeTest =
             returnTypeTest "typeof" (String "boolean")
           elif t = typeof<System.DateTime> then
             returnTypeTest "instanceof" (String "Date")
-
-          // Interfaces // TODO: Implement
-          elif t.IsInterface then
-            [ returnStrategy.Return <| Boolean false ]
 
           // Union types: Test all union case constructors // TODO: Make this a global function?
           elif FSharpType.IsUnion t then

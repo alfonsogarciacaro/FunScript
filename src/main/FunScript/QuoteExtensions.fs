@@ -103,7 +103,6 @@ let toMethodInfoFromLambdas expr =
 
 let toMethodBaseFromLambdas expr =
    match tryToMethodBaseFromLambdas expr with
-   //| Some (_, (:? MethodInfo as mi), _, callType) -> mostGeneric mi :> MethodBase, callType
    | Some (_, mi, _, callType) -> mi, callType
    | None -> failwith "Expected a method/property call/get/set wrapped in a lambda"
 
