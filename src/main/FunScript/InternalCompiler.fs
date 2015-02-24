@@ -5,9 +5,6 @@ open System
 open System.Reflection
 open Microsoft.FSharp.Quotations
 
-type Helpers =
-   static member Cast(x:obj) : 'a = failwith "never"
-
 type ReturnStrategy =
     | ReturnFrom
     | InPlace
@@ -18,12 +15,21 @@ type ReturnStrategy =
         | InPlace -> Do expr
         | AssignVar var -> Assign(Reference var, expr)
 
+type MethodMapping =
+    { JSName: string; Var: Var; Assignment: JSStatement list }
+
+type ImplTypeMapping =
+    { ImplType: Type; JSName: string; Methods: Map<string, MethodMapping>}
+
+// Types with no type arguments will also be considered as generics with a unique implementation
+type GenericTypeMapping =
+    { GenericType: Type; JSName: string; Implementations: Map<string, ImplTypeMapping>}
+
 type ICompiler = 
    abstract Compile: returnStrategy: ReturnStrategy -> expr:Expr -> JSStatement list
    abstract ReplacementFor: MethodBase -> Quote.CallType -> MethodInfo option
    abstract NextTempVar: unit -> Var
-   abstract DefineGlobal: string -> (Var -> JSStatement list) -> Var
-   abstract DefineGlobalInitialization: JSStatement list -> unit
+   abstract DefineGlobal: MethodBase -> (Var -> JSStatement list) -> Var
    abstract Globals: JSStatement list
 
 type ICompilerComponent =
@@ -138,34 +144,47 @@ type Compiler(components) as this =
 
    let nextId = ref 0
 
-   let mutable globals = Map.empty
+   let mutable globals = Map.empty<string, GenericTypeMapping>
 
-   let define name cons =
-      match globals |> Map.tryFind name with
-      | Some (var, _) -> var
-      | None -> 
-         // Define upfront to avoid problems with mutually recursive methods
-         let var = Var.Global(name, typeof<obj>)
-         globals <- globals |> Map.add name (var, [])
-         let assignment = cons var
-         globals <- globals |> Map.add name (var, assignment)
-         var
+   let define (mb: MethodBase) cons =
+      let implType = mb.DeclaringType
+      let genType = if implType.IsGenericType then implType.GetGenericTypeDefinition() else implType
 
-   let mutable initialization = List.empty
+      let genTypeMapping =
+          match globals.TryFind genType.FullName with
+          | Some m -> m
+          | None ->
+            let jsName = "" // TODO: generate unique name
+            { JSName = jsName; GenericType = genType; Implementations = Map.empty }
+
+      let implTypeMapping =
+          match genTypeMapping.Implementations.TryFind implType.FullName with
+          | Some m -> m
+          | None ->
+            let jsName = "" // TODO: concatenate type args to genTypeMapping.JSName
+            { JSName = jsName; ImplType = implType; Methods = Map.empty }
+
+      let methodMapping =
+          match implTypeMapping.Methods.TryFind (string mb) with
+          | Some m -> m // TODO: Regenerate method for interfaces if genType is different
+          | None ->
+            let jsName = "" // TODO: generate unique name. Watch for overloads!
+            let var = Var.Global(jsName, typeof<obj>)
+            // TODO: generic methods optimizations
+            { JSName = jsName; Var = var; Assignment = cons var }
+
+      // TODO: Reassign globals
+      // globals <- globals |> Map.add mb (var, []) |> Map.add mb (var, assignment)
+      methodMapping.Var
 
    let getGlobals() =
       let globals = globals |> Map.toList |> List.map snd
-
       let declarations = 
          match globals with
          | [] -> []
          | _ -> [Declare (globals |> List.map (fun (var, _) -> var))]
-
       let assignments = globals |> List.collect snd
-
-      List.append
-         (List.append declarations assignments)
-         initialization
+      List.append declarations assignments
 
    let tryFixDeclaringTypeGenericParameters (originalMethod:MethodBase) (replacementMethod:MethodInfo) =
         let genericTypeDefinition = 
@@ -204,11 +223,8 @@ type Compiler(components) as this =
          incr nextId
          Var(sprintf "_%i" !nextId, typeof<obj>, false) 
          
-      member __.DefineGlobal name cons =
-         define name cons
-
-      member __.DefineGlobalInitialization stmts =
-         initialization <- List.append initialization stmts
+      member __.DefineGlobal mb cons =
+         define mb cons
 
       member __.Globals = getGlobals()
          
