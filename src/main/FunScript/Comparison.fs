@@ -4,7 +4,6 @@ open AST
 open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Reflection
 open System
-open InternalCompiler
 
 [<JS; Inline>]
 module Replacements =
@@ -185,7 +184,7 @@ let comparableCompareComponent compareQuote =
                     | Some createCompareToLambda ->
                         let compareFuncVar = 
                             compiler.DefineGlobal (getCompareToName compiler exprA.Type) (fun var ->
-                                compiler.Compile (ReturnStrategy.AssignVar var) (createCompareToLambda())
+                                compiler.Compile (ReturnStrategies.assignVar var) (createCompareToLambda())
                             )
                         let lambda = Expr.Var compareFuncVar
                         let innerLambdaType = typedefof<_ -> _>.MakeGenericType [|exprB.Type; typeof<int>|]

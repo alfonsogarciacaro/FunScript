@@ -6,7 +6,7 @@ open Microsoft.FSharp.Quotations
 let private toShortCircuit (|Split|) (compiler : InternalCompiler.ICompiler) rhs =
     // Because of short circuiting we have to wrap the rhs inside a function.
     // Unless it is compilable to a javascript expression.
-    match compiler.Compile InternalCompiler.ReturnStrategy.ReturnFrom rhs with
+    match compiler.Compile ReturnStrategies.returnFrom rhs with
     | [ AST.Return rhs ] -> rhs
     | rhsBody -> Apply(Lambda([], Block rhsBody), [])
 

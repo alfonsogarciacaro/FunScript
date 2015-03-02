@@ -6,18 +6,12 @@ open Microsoft.FSharp.Quotations
 open System
 open System.Reflection
 open Microsoft.FSharp.Reflection
-open InternalCompiler
 
 type MissingReflectedDefinitionException(mb: MethodBase) =
-    inherit Exception(
+    inherit System.Exception(
         "No replacement for " + mb.Name + ": " +
         "either ReflectedDefinition attribute is missing or " +
         "the method is not yet implemented in FunScript.")
-
-type InheritanceNotAllowedException(t: Type) =
-    inherit Exception(
-        t.Name + " constructor is being called from another constructor." +
-        "Only interface inheritance is allowed in FunScript")
 
 let private (|List|) = Option.toList
 
@@ -86,13 +80,13 @@ let private genMethod (mb:MethodBase) (replacementMi:MethodBase) (vars:Var list)
       
       let fixedBodyExpr = replaceThisInExpr bodyExpr
       [
-         Assign(Reference var, Lambda(vars, Block(compiler.Compile ReturnStrategy.ReturnFrom fixedBodyExpr)))
+         Assign(Reference var, Lambda(vars, Block(compiler.Compile ReturnStrategies.returnFrom fixedBodyExpr)))
       ]
    | _ -> 
       [ Assign(
          Reference var, 
          Lambda(vars, 
-            Block(compiler.Compile ReturnStrategy.ReturnFrom bodyExpr))) ]
+            Block(compiler.Compile ReturnStrategies.returnFrom bodyExpr))) ]
 
 let private deconstructTuple (tupleVar : Var) =
     if tupleVar.Type = typeof<unit> then
@@ -179,11 +173,7 @@ let tryCreateGlobalMethod name compiler mb callType =
    match replaceIfAvailable compiler mb callType with
    | CallPattern getVarsExpr as replacementMi ->
       let typeArgs = Reflection.getGenericMethodArgs replacementMi
-      let specialization =
-        match callType with
-        | Quote.ConstructorCall -> ""
-        | Quote.MethodCall -> Reflection.getSpecializationString compiler typeArgs
-        | Quote.UnionCaseConstructorCall -> raise <| ArgumentException "callType"
+      let specialization = Reflection.getSpecializationString compiler typeArgs
       Some(
          compiler.DefineGlobal (name + specialization) (fun var ->
             let vars, bodyExpr = getVarsExpr()
@@ -203,8 +193,8 @@ let getObjectConstructorVar compiler ci =
 
 let private createConstruction
       (|Split|) 
-      (returnStrategy: InternalCompiler.ReturnStrategy)
-      (compiler: InternalCompiler.ICompiler)
+      (returnStategy:InternalCompiler.IReturnStrategy)
+      (compiler:InternalCompiler.ICompiler)
       (exprs: seq<Expr list>)
       (ci: MethodBase) =
     let decls, refs =
@@ -219,7 +209,7 @@ let private createConstruction
             then New(cons, refs)
             else Apply(Reference cons, refs) // Secondary constructors don't need new keyword
     [ yield! decls |> List.concat
-      yield returnStrategy.Return call ]
+      yield returnStategy.Return call ]
 
 let (|OptionPattern|_|) = function
     | Patterns.NewUnionCase(uci, []) when 
@@ -305,7 +295,7 @@ let (@.) x ys =
     | None -> ys
 
 let private jsEmitInlineMethodCalling =
-    CompilerComponent.create <| fun (|Split|) compiler returnStrategy ->
+    CompilerComponent.create <| fun (|Split|) compiler returnStategy ->
         function
         | Patterns.Call(objExpr, JSEmitInlineMethod(mi, attr), exprs) ->
             let allExprs = objExpr @. exprs |> List.toArray
@@ -323,7 +313,7 @@ let private jsEmitInlineMethodCalling =
                 |> k
             [
                 yield! decls
-                yield returnStrategy.Return ref
+                yield returnStategy.Return ref
             ]
         | _ -> []
              
@@ -332,7 +322,7 @@ let private (|SpecialOp|_|) = Quote.specialOp
 
 let private createCall 
       (|Split|) 
-      (returnStrategy:InternalCompiler.ReturnStrategy)
+      (returnStategy:InternalCompiler.IReturnStrategy)
       (compiler:InternalCompiler.ICompiler)
       exprs mi =
    let exprs = exprs |> List.concat
@@ -344,19 +334,19 @@ let private createCall
       | [] -> []
       | objRef::argRefs ->
          [  yield! decls |> List.concat
-            yield returnStrategy.Return <| Apply(PropertyGet(objRef, name), argRefs) ] // TODO: Fix after changing the interface implementation
+            yield returnStategy.Return <| Apply(PropertyGet(objRef, name), argRefs) ] // TODO: Fix after changing the interface implementation
    | SpecialOp((ReflectedDefinition name) as mi)
    | (ReflectedDefinition name as mi) ->
       let methRef = createGlobalMethod name compiler mi Quote.MethodCall
       [  yield! decls |> List.concat
-         yield returnStrategy.Return <| Apply(Reference methRef, refs) ]
+         yield returnStategy.Return <| Apply(Reference methRef, refs) ]
    | _ -> []
 
 let private methodCalling =
-   CompilerComponent.create <| fun split compiler returnStrategy ->
+   CompilerComponent.create <| fun split compiler returnStategy ->
       function
       | Patterns.Call(List objExpr, mi, exprs) -> 
-         createCall split returnStrategy compiler [objExpr; exprs] mi
+         createCall split returnStategy compiler [objExpr; exprs] mi
       | _ -> []
 
 let private getPropertyField split (compiler:InternalCompiler.ICompiler) (pi:PropertyInfo) objExpr exprs =
@@ -367,7 +357,7 @@ let private getPropertyField split (compiler:InternalCompiler.ICompiler) (pi:Pro
    compiler.DefineGlobal name (fun var ->
       // TODO: wrap in function scope?
       compiler.DefineGlobalInitialization <|
-         createCall split (ReturnStrategy.AssignVar var) compiler [objExpr; exprs] (pi.GetGetMethod(true))
+         createCall split (ReturnStrategies.assignVar var) compiler [objExpr; exprs] (pi.GetGetMethod(true))
       []
    )
 
@@ -396,7 +386,7 @@ let private propertyGetting =
       | _ -> []
       
 let private propertySetting =
-   CompilerComponent.create <| fun (|Split|) compiler returnStrategy ->
+   CompilerComponent.create <| fun (|Split|) compiler returnStategy ->
       function
       | Patterns.PropertySet(List objExpr, pi, exprs, valExpr) ->
          let mapping = pi.GetCustomAttribute<CompilationMappingAttribute>()
@@ -409,22 +399,22 @@ let private propertySetting =
             [  yield! valDecl
                yield Assign(Reference property, valRef) 
             ]
-         | _ -> createCall (|Split|) returnStrategy compiler [objExpr; exprs; [valExpr]] (pi.GetSetMethod(true))
+         | _ -> createCall (|Split|) returnStategy compiler [objExpr; exprs; [valExpr]] (pi.GetSetMethod(true))
       | _ -> []
 
 let private fieldGetting =
-   CompilerComponent.create <| fun (|Split|) _ returnStrategy ->
+   CompilerComponent.create <| fun (|Split|) _ returnStategy ->
       function
       | Patterns.FieldGet(Some(Split(objDecl, objRef)), fi) ->
          [ yield! objDecl
-           yield returnStrategy.Return <| PropertyGet(objRef, JavaScriptNameMapper.sanitizeAux fi.Name) ]
+           yield returnStategy.Return <| PropertyGet(objRef, JavaScriptNameMapper.sanitizeAux fi.Name) ]
       | Patterns.FieldGet(None, fi) ->
          let name = JavaScriptNameMapper.mapType fi.DeclaringType
-         [ yield returnStrategy.Return <| PropertyGet(Reference (Var.Global(name, typeof<obj>)), JavaScriptNameMapper.sanitizeAux fi.Name) ]
+         [ yield returnStategy.Return <| PropertyGet(Reference (Var.Global(name, typeof<obj>)), JavaScriptNameMapper.sanitizeAux fi.Name) ]
       | _ -> []
 
 let private fieldSetting =
-   CompilerComponent.create <| fun (|Split|) _ returnStrategy ->
+   CompilerComponent.create <| fun (|Split|) _ returnStategy ->
       function
       | Patterns.FieldSet(Some(Split(objDecl, objRef)), fi, Split(valDecl, valRef)) ->
          [ yield! objDecl
@@ -439,16 +429,11 @@ let private fieldSetting =
 let private constructingInstances =
    CompilerComponent.create <| fun split compiler returnStrategy ->
       function
-      | PatternsExt.NewObject(ci, exprs) ->
-         let isEmptyObj = ci.DeclaringType.GUID = typeof<obj>.GUID &&
-                          ci.DeclaringType.FullName = typeof<obj>.FullName
-         match returnStrategy with
-         // All constructors call new obj(), emit nothing
-         | InPlace when isEmptyObj -> [ Scope <| Block [] ]
-         // A constructor within another means inheritance, throw exception
-         | InPlace -> raise <| InheritanceNotAllowedException ci.DeclaringType
-         | _ when isEmptyObj -> [ returnStrategy.Return <| JSExpr.Object [] ]
-         | _ -> createConstruction split returnStrategy compiler [exprs] ci
+      | PatternsExt.NewObject(ci, exprs) -> 
+         if ci.DeclaringType.GUID = typeof<obj>.GUID &&
+            ci.DeclaringType.FullName = typeof<obj>.FullName // Empty objects
+         then [ returnStrategy.Return <| JSExpr.Object [] ]
+         else createConstruction split returnStrategy compiler [exprs] ci
       // Creating instances of generic types with parameterless constructors (e.g. new T'())
       | Patterns.Call(None, mi, []) when mi.Name = "CreateInstance" && mi.IsGenericMethod ->
          let t = mi.GetGenericArguments().[0]

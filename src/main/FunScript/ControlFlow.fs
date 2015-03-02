@@ -2,13 +2,12 @@
 
 open AST
 open Microsoft.FSharp.Quotations
-open InternalCompiler
 
 let private forLoop =
    CompilerComponent.create <| fun (|Split|) compiler returnStrategy ->
       let (|Return|) = compiler.Compile
       function
-      | Patterns.ForIntegerRangeLoop(var, Split(fromDecl, fromRef), Split(toDecl, toRef), (Return ReturnStrategy.InPlace block as bodyExpr)) ->
+      | Patterns.ForIntegerRangeLoop(var, Split(fromDecl, fromRef), Split(toDecl, toRef), (Return ReturnStrategies.inplace block as bodyExpr)) ->
          [  yield! fromDecl
             yield! toDecl
             let hasClosure =
@@ -30,8 +29,8 @@ let private whileLoop =
     CompilerComponent.create <| fun (|Split|) compiler returnStrategy ->
         let (|Return|) = compiler.Compile
         function
-        | Patterns.WhileLoop(condExpr, Return ReturnStrategy.InPlace block) ->
-            match compiler.Compile ReturnStrategy.ReturnFrom condExpr with
+        | Patterns.WhileLoop(condExpr, Return ReturnStrategies.inplace block) ->
+            match compiler.Compile ReturnStrategies.returnFrom condExpr with
             | [AST.Return condExpr] ->
                 [ WhileLoop(condExpr, Block block) ]
             | condBody ->
@@ -58,7 +57,7 @@ let private tryFinally =
    function
    | Patterns.TryFinally(tryExpr, finallyExpr) ->
       let tryStmts = compiler.Compile returnStrategy tryExpr
-      let finallyStmts = compiler.Compile ReturnStrategy.InPlace finallyExpr
+      let finallyStmts = compiler.Compile ReturnStrategies.inplace finallyExpr
       [ TryFinally(Block tryStmts, Block finallyStmts) ]
    | _ -> []
 
@@ -76,7 +75,7 @@ let private sequential =
    CompilerComponent.create <| fun (|Split|) compiler returnStrategy ->
       let (|Return|) = compiler.Compile
       function
-      | Patterns.Sequential(Return ReturnStrategy.InPlace firstBlock, Return returnStrategy secondBlock) ->
+      | Patterns.Sequential(Return ReturnStrategies.inplace firstBlock, Return returnStrategy secondBlock) ->
          [ yield! firstBlock
            yield! secondBlock
          ]

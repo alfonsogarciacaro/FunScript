@@ -75,6 +75,7 @@
     <Compile Include="AST.fs" />
     <Compile Include="QuoteExtensions.fs" />
     <Compile Include="InternalCompiler.fs" />
+    <Compile Include="ReturnStrategies.fs" />
     <Compile Include="CompilerComponent.fs" />
     <Compile Include="ExpressionReplacer.fs" />
     <Compile Include="Reflection.fs" />
