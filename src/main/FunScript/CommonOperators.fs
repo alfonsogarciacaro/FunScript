@@ -265,6 +265,7 @@ let components =
          typeTest
          CompilerComponent.unary <@ box @> id
          CompilerComponent.unary <@ unbox @> id
+         CompilerComponent.unary <@ InternalCompiler.Helpers.Cast @> id
 
          // Exns 
          ExpressionReplacer.createUnsafe <@ fun str -> exn str @> <@ Replacements.exn @>

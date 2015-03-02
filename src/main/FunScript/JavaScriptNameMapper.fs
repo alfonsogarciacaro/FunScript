@@ -2,7 +2,7 @@
 
 open System.Reflection
 
-// ES5/ES6 reserved words + undefined, module, require
+// ES5/ES6 reserved words plus undefined
 let unsafeWords =
    set [
         "do"
@@ -53,8 +53,6 @@ let unsafeWords =
         "implements"
         "instanceof"
         "undefined"
-        "module"
-        "require"
    ]
 
 let filterUnsafe str =

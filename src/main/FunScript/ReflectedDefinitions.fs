@@ -8,11 +8,29 @@ open System.Reflection
 open Microsoft.FSharp.Reflection
 open InternalCompiler
 
+type MissingReflectedDefinitionException(mb: MethodBase) =
+    inherit Exception(
+        "No replacement for " + mb.Name + ": " +
+        "either ReflectedDefinition attribute is missing or " +
+        "the method is not yet implemented in FunScript.")
+
+type InheritanceNotAllowedException(t: Type) =
+    inherit Exception(
+        t.Name + " constructor is being called from another constructor." +
+        "Only interface inheritance is allowed in FunScript")
+
 let private (|List|) = Option.toList
 
 let private (|NonNull|_|) x = 
    if obj.ReferenceEquals(x, null) then None
    else Some x
+
+let private (|ReflectedDefinition|_|) (mi:MethodBase) =
+   if mi.DeclaringType.IsInterface then Some mi.Name // TODO: Fix after changing the interface implementation
+   else
+      match Expr.tryGetReflectedDefinition mi with
+      | Some _ -> Some(JavaScriptNameMapper.mapMethod mi)
+      | _ -> None
 
 let private replaceThisInExpr (expr : Expr) =
     let var = ref None
@@ -157,23 +175,31 @@ let replaceIfAvailable (compiler:InternalCompiler.ICompiler) (mb : MethodBase) c
    | None -> mb //GetGenericMethod()...
    | Some mi -> upcast mi
 
-let tryCreateGlobalMethod compiler mb callType =
+let tryCreateGlobalMethod name compiler mb callType =
    match replaceIfAvailable compiler mb callType with
    | CallPattern getVarsExpr as replacementMi ->
       let typeArgs = Reflection.getGenericMethodArgs replacementMi
+      let specialization =
+        match callType with
+        | Quote.ConstructorCall -> ""
+        | Quote.MethodCall -> Reflection.getSpecializationString compiler typeArgs
+        | Quote.UnionCaseConstructorCall -> raise <| ArgumentException "callType"
       Some(
-         compiler.DefineGlobal mb (fun var ->
+         compiler.DefineGlobal (name + specialization) (fun var ->
             let vars, bodyExpr = getVarsExpr()
             genMethod mb replacementMi vars bodyExpr var compiler))
    | _ -> None
 
-let createGlobalMethod compiler mb callType =
-    match tryCreateGlobalMethod compiler mb callType with
-    | None -> raise <| Exceptions.ReflectedDefinition mb
+let createGlobalMethod name compiler mb callType =
+    match tryCreateGlobalMethod name compiler mb callType with
+    | None -> raise <| MissingReflectedDefinitionException mb
     | Some x -> x
 
 let getObjectConstructorVar compiler ci =
-   createGlobalMethod compiler ci Quote.ConstructorCall
+   match ci with
+   | ReflectedDefinition name ->
+      createGlobalMethod name compiler ci Quote.ConstructorCall
+   | _ -> raise <| MissingReflectedDefinitionException ci
 
 let private createConstruction
       (|Split|) 
@@ -309,11 +335,22 @@ let private createCall
       (returnStrategy:InternalCompiler.ReturnStrategy)
       (compiler:InternalCompiler.ICompiler)
       exprs mi =
-    let exprs = exprs |> List.concat
-    let decls, refs = Reflection.getDeclarationAndReferences (|Split|) exprs
-    let methRef = createGlobalMethod compiler mi Quote.MethodCall
-    [ yield! decls |> List.concat
-      yield returnStrategy.Return <| Apply(Reference methRef, refs) ]
+   let exprs = exprs |> List.concat
+   let decls, refs = Reflection.getDeclarationAndReferences (|Split|) exprs
+   match mi with
+   | SpecialOp((ReflectedDefinition name) as mi)
+   | (ReflectedDefinition name as mi) when mi.DeclaringType.IsInterface ->
+      match refs with
+      | [] -> []
+      | objRef::argRefs ->
+         [  yield! decls |> List.concat
+            yield returnStrategy.Return <| Apply(PropertyGet(objRef, name), argRefs) ] // TODO: Fix after changing the interface implementation
+   | SpecialOp((ReflectedDefinition name) as mi)
+   | (ReflectedDefinition name as mi) ->
+      let methRef = createGlobalMethod name compiler mi Quote.MethodCall
+      [  yield! decls |> List.concat
+         yield returnStrategy.Return <| Apply(Reference methRef, refs) ]
+   | _ -> []
 
 let private methodCalling =
    CompilerComponent.create <| fun split compiler returnStrategy ->
@@ -322,6 +359,18 @@ let private methodCalling =
          createCall split returnStrategy compiler [objExpr; exprs] mi
       | _ -> []
 
+let private getPropertyField split (compiler:InternalCompiler.ICompiler) (pi:PropertyInfo) objExpr exprs =
+   let specialization = Reflection.getSpecializationString compiler (Reflection.getGenericTypeArgs pi.DeclaringType)
+   let name = 
+      JavaScriptNameMapper.sanitizeAux
+         (JavaScriptNameMapper.mapType pi.DeclaringType + "_" + pi.Name + specialization)
+   compiler.DefineGlobal name (fun var ->
+      // TODO: wrap in function scope?
+      compiler.DefineGlobalInitialization <|
+         createCall split (ReturnStrategy.AssignVar var) compiler [objExpr; exprs] (pi.GetGetMethod(true))
+      []
+   )
+
 let private propertyGetting =
    CompilerComponent.create <| fun split compiler returnStrategy ->
       function
@@ -329,67 +378,62 @@ let private propertyGetting =
       | Patterns.PropertyGet(Some(Patterns.Coerce(Patterns.Var var, t)), pi, exprs)
         when FSharpType.IsExceptionRepresentation pi.DeclaringType && pi.Name.StartsWith "Data" ->
          [ returnStrategy.Return <| PropertyGet(Reference var, pi.Name) ]
-
-      // Implement literals directly in code 
-      | Patterns.PropertyGet(None, pi, [])
-        when pi.PropertyType.IsPrimitive || pi.PropertyType.IsEnum || pi.PropertyType = typeof<string> ->
-        try
-            let v, t = pi.GetValue(null), pi.PropertyType
-            let expr =
-                // TODO: Test if this works for TypeScript enumerations
-                if t.IsEnum then JSExpr.Integer(unbox v)
-                elif t = typeof<string> || t = typeof<char> then JSExpr.String(string v)
-                elif t = typeof<bool> then JSExpr.Boolean(unbox v)
-                elif t = typeof<int> then JSExpr.Integer(unbox v)
-                elif t = typeof<float> then JSExpr.Number(unbox v)
-                elif t = typeof<single> then JSExpr.Number(unbox v)
-
-                elif t = typeof<byte> then JSExpr.Integer(unbox v)
-                elif t = typeof<sbyte> then JSExpr.Integer(unbox v)
-                elif t = typeof<int16> then JSExpr.Integer(unbox v)
-
-                elif t = typeof<uint16> then JSExpr.Number(unbox v)
-                elif t = typeof<uint32> then JSExpr.Number(unbox v)
-                elif t = typeof<int64> then JSExpr.Number(unbox v)
-                elif t = typeof<uint64> then JSExpr.Number(unbox v)
-
-                else failwithf "%s is not recognized as a primitive type" t.Name
-            [ returnStrategy.Return expr ]
-        with
-        | _ -> createCall split returnStrategy compiler [] (pi.GetGetMethod(true))
       | Patterns.PropertyGet(List objExpr, pi, exprs) ->
-         // TODO: Test module let bounds and member val x = 5 with get, set still work properly
-        createCall split returnStrategy compiler [objExpr; exprs] (pi.GetGetMethod(true))
+         let isField = 
+            let mapping = pi.GetCustomAttribute<CompilationMappingAttribute>()
+            mapping <> Unchecked.defaultof<_> &&
+            mapping.SourceConstructFlags = SourceConstructFlags.Value
+         let isModuleLetBound =
+            let dt = pi.DeclaringType
+            let mapping = dt.GetCustomAttribute<CompilationMappingAttribute>()
+            mapping <> Unchecked.defaultof<_> &&
+            mapping.SourceConstructFlags = SourceConstructFlags.Module
+         match isField || isModuleLetBound, objExpr, exprs with
+         | true, [], [] ->
+            let property = getPropertyField split compiler pi objExpr exprs
+            [ returnStrategy.Return <| Reference property ]
+         | _ -> createCall split returnStrategy compiler [objExpr; exprs] (pi.GetGetMethod(true))
       | _ -> []
       
 let private propertySetting =
    CompilerComponent.create <| fun (|Split|) compiler returnStrategy ->
       function
-      | Patterns.PropertySet(None, pi, _, _) ->
-        raise <| Exceptions.StaticMutableProperty pi
       | Patterns.PropertySet(List objExpr, pi, exprs, valExpr) ->
-        createCall (|Split|) returnStrategy compiler [objExpr; exprs; [valExpr]] (pi.GetSetMethod(true))
+         let mapping = pi.GetCustomAttribute<CompilationMappingAttribute>()
+         let isField = 
+            mapping <> Unchecked.defaultof<_> &&
+            mapping.SourceConstructFlags = SourceConstructFlags.Value
+         match isField, objExpr, exprs, valExpr with
+         | true, [], [], Split(valDecl, valRef) ->
+            let property = getPropertyField (|Split|) compiler pi objExpr exprs
+            [  yield! valDecl
+               yield Assign(Reference property, valRef) 
+            ]
+         | _ -> createCall (|Split|) returnStrategy compiler [objExpr; exprs; [valExpr]] (pi.GetSetMethod(true))
       | _ -> []
 
 let private fieldGetting =
    CompilerComponent.create <| fun (|Split|) _ returnStrategy ->
       function
-      | Patterns.FieldGet(None, fi) ->
-         raise <| Exceptions.StaticField fi
       | Patterns.FieldGet(Some(Split(objDecl, objRef)), fi) ->
          [ yield! objDecl
            yield returnStrategy.Return <| PropertyGet(objRef, JavaScriptNameMapper.sanitizeAux fi.Name) ]
+      | Patterns.FieldGet(None, fi) ->
+         let name = JavaScriptNameMapper.mapType fi.DeclaringType
+         [ yield returnStrategy.Return <| PropertyGet(Reference (Var.Global(name, typeof<obj>)), JavaScriptNameMapper.sanitizeAux fi.Name) ]
       | _ -> []
 
 let private fieldSetting =
    CompilerComponent.create <| fun (|Split|) _ returnStrategy ->
       function
-      | Patterns.FieldSet(None, fi, _) ->
-         raise <| Exceptions.StaticField fi
       | Patterns.FieldSet(Some(Split(objDecl, objRef)), fi, Split(valDecl, valRef)) ->
          [ yield! objDecl
            yield! valDecl
            yield Assign(PropertyGet(objRef, JavaScriptNameMapper.sanitizeAux fi.Name), valRef) ]
+      | Patterns.FieldSet(None, fi, Split(valDecl, valRef)) ->
+         let name = JavaScriptNameMapper.mapType fi.DeclaringType
+         [ yield! valDecl
+           yield Assign(PropertyGet(Reference (Var.Global(name, typeof<obj>)), JavaScriptNameMapper.sanitizeAux fi.Name), valRef) ]
       | _ -> []
 
 let private constructingInstances =
@@ -402,7 +446,7 @@ let private constructingInstances =
          // All constructors call new obj(), emit nothing
          | InPlace when isEmptyObj -> [ Scope <| Block [] ]
          // A constructor within another means inheritance, throw exception
-         | InPlace -> raise <| Exceptions.Inheritance ci.DeclaringType
+         | InPlace -> raise <| InheritanceNotAllowedException ci.DeclaringType
          | _ when isEmptyObj -> [ returnStrategy.Return <| JSExpr.Object [] ]
          | _ -> createConstruction split returnStrategy compiler [exprs] ci
       // Creating instances of generic types with parameterless constructors (e.g. new T'())
