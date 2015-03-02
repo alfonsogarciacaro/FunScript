@@ -5,7 +5,7 @@ open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Reflection
 
 let itemsPropName = "Items"
-let getItem i ref = IndexGet(PropertyGet(ref, itemsPropName), Number(float i))
+let getItem i ref = IndexGet(PropertyGet(ref, itemsPropName), Integer i)
 
 let private creation =
    CompilerComponent.create <| fun (|Split|) compiler returnStrategy ->

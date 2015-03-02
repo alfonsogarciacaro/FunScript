@@ -144,7 +144,7 @@ let getUnionCaseConstructorVar compiler (uci : UnionCaseInfo) =
        let this = Var("__this", typeof<obj>)
        vars, Block
         [ yield CopyThisToVar(this)
-          yield Assign(PropertyGet(Reference this, "Tag"), Number(float uci.Tag))
+          yield Assign(PropertyGet(Reference this, "Tag"), Integer uci.Tag)
           yield Assign(PropertyGet(Reference this, "_CaseName"), JSExpr.String uci.Name)
           for var in vars do yield Assign(PropertyGet(Reference this, var.Name), Reference var) ]
     let name =
