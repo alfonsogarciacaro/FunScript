@@ -7,12 +7,6 @@ open System
 open System.Reflection
 open Microsoft.FSharp.Reflection
 
-type MissingReflectedDefinitionException(mb: MethodBase) =
-    inherit System.Exception(
-        "No replacement for " + mb.Name + ": " +
-        "either ReflectedDefinition attribute is missing or " +
-        "the method is not yet implemented in FunScript.")
-
 let private (|List|) = Option.toList
 
 let private (|NonNull|_|) x = 
@@ -182,14 +176,14 @@ let tryCreateGlobalMethod name compiler mb callType =
 
 let createGlobalMethod name compiler mb callType =
     match tryCreateGlobalMethod name compiler mb callType with
-    | None -> raise <| MissingReflectedDefinitionException mb
+    | None -> raise <| ReflectedDefinitionException mb
     | Some x -> x
 
 let getObjectConstructorVar compiler ci =
    match ci with
    | ReflectedDefinition name ->
       createGlobalMethod name compiler ci Quote.ConstructorCall
-   | _ -> raise <| MissingReflectedDefinitionException ci
+   | _ -> raise <| ReflectedDefinitionException ci
 
 let private createConstruction
       (|Split|) 
@@ -429,11 +423,19 @@ let private fieldSetting =
 let private constructingInstances =
    CompilerComponent.create <| fun split compiler returnStrategy ->
       function
-      | PatternsExt.NewObject(ci, exprs) -> 
-         if ci.DeclaringType.GUID = typeof<obj>.GUID &&
-            ci.DeclaringType.FullName = typeof<obj>.FullName // Empty objects
-         then [ returnStrategy.Return <| JSExpr.Object [] ]
-         else createConstruction split returnStrategy compiler [exprs] ci
+      | PatternsExt.NewObject(ci, exprs) ->
+         let isEmptyObj = ci.DeclaringType.GUID = typeof<obj>.GUID &&
+                          ci.DeclaringType.FullName = typeof<obj>.FullName
+         // A returnStrategy of inplace means the constructor is being called from another (inheritance)
+         if returnStrategy = ReturnStrategies.inplace then
+            if isEmptyObj
+            then [ Empty ] // All constructors call new obj() as their base, emit nothing
+            else raise <| InheritanceException ci.DeclaringType
+         else
+            if isEmptyObj
+            then [ returnStrategy.Return <| JSExpr.Object [] ]
+            else createConstruction split returnStrategy compiler [exprs] ci
+
       // Creating instances of generic types with parameterless constructors (e.g. new T'())
       | Patterns.Call(None, mi, []) when mi.Name = "CreateInstance" && mi.IsGenericMethod ->
          let t = mi.GetGenericArguments().[0]
