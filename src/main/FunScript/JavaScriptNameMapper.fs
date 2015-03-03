@@ -1,6 +1,7 @@
 ﻿module (*private*) FunScript.JavaScriptNameMapper
 
 open System.Reflection
+open System.Text.RegularExpressions
 
 let keywords =
    set [
@@ -71,22 +72,13 @@ let reservedWords =
 
 let unsafeWords = keywords + reservedWords
 
-let filterUnsafe str =
-   if unsafeWords.Contains str then
-      "_" + str
-   else str
-
-let sanitizeAux(str:string) =
-   str |> Seq.map (function
-      | c when (c >= 'a' && c <= 'z') || 
-               (c >= '0' && c <= '9') ||
-               (c >= 'A' && c <= 'Z') ||
-               c = '$' ||
-               c = '_' -> c
-      | _ -> '_')
-   |> Seq.toArray
-   |> fun chars -> System.String(chars)
-   |> filterUnsafe
+let sanitizeAux =
+   let regex = Regex "[^0-9a-zA-Z$_]"
+   fun str ->
+      let str = regex.Replace(str, "_")
+      if unsafeWords.Contains str
+      then "_" + str
+      else str
 
 let replacements = ref Map.empty
 let used = ref Set.empty
