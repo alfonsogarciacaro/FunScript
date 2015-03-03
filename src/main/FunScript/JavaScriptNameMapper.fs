@@ -34,7 +34,6 @@ let keywords =
       "with"
    ]
 
-
 let reservedWords =
    set [
       "abstract"
@@ -72,6 +71,21 @@ let reservedWords =
 
 let unsafeWords = keywords + reservedWords
 
+type Replacements() =
+   let replacements = ref Map.empty
+   let used = ref Set.empty
+   member x.ContainsReplacement replacement =
+      !used |> Set.contains replacement
+   member x.Add key replacement =
+      used := !used |> Set.add replacement
+      replacements := !replacements |> Map.add key replacement
+      replacement  
+   member x.TryFind key =
+      !replacements |> Map.tryFind key
+
+let private replacements = ref Unchecked.defaultof<Replacements>
+let reset() = replacements := Replacements()
+
 let sanitizeAux =
    let regex = Regex "[^0-9a-zA-Z$_]"
    fun str ->
@@ -80,27 +94,20 @@ let sanitizeAux =
       then "_" + str
       else str
 
-let replacements = ref Map.empty
-let used = ref Set.empty
-
 let sanitize key str =
    let replacement = lazy sanitizeAux str
-   // This is for when multiple unsafe strings map onto the
-   // same safe string.
+   // This is for when multiple unsafe strings map onto the same safe string.
    let rec sanitize n =
-      match !replacements |> Map.tryFind key with
+      match (!replacements).TryFind key with
       | Some replacement -> replacement
       | None ->
          let replacement =
             match n with
             | 0 -> replacement.Value
             | n -> sprintf "%s%i" replacement.Value n
-         if !used |> Set.contains replacement then
-            sanitize (n+1)
-         else
-            used := !used |> Set.add replacement
-            replacements := !replacements |> Map.add key replacement
-            replacement
+         if (!replacements).ContainsReplacement replacement
+         then sanitize (n+1)
+         else (!replacements).Add key replacement
    sanitize 0
 
 let rec private getBestTypeName (t : System.Type) =
@@ -117,7 +124,7 @@ let getConstructorIndex (mb: MethodBase) =
     mb.DeclaringType.GetConstructors (BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
     |> Array.findIndex (fun ci -> ci.Equals(mb))
 
-let getBestMethodName (mb : MethodBase) =
+let private getBestMethodName (mb : MethodBase) =
    // Make sure constructors have same index so primary is always 0 (omitted)
    let suffix =
       if mb.IsConstructor

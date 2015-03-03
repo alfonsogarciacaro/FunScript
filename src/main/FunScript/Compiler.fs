@@ -44,6 +44,8 @@ type Compiler =
       let returnStrat = 
          if defaultArg noReturn false then ReturnStrategies.inplace
          else ReturnStrategies.returnFrom
+      
+      JavaScriptNameMapper.reset()
       let components = createComponents isEventMappingEnabled
       let compiler = InternalCompiler.Compiler(adjustComponents components)
       let program = compiler.Compile returnStrat expression

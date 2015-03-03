@@ -154,6 +154,7 @@ type JSExpr =
          result
       | UnaryOp(symbol, expr) ->
          sprintf "(%s%s)" symbol (expr.Print(padding, scope))
+      // TODO: Try to perform operation at compile time if both operands are literals
       | BinaryOp(lhsExpr, symbol, rhsExpr) ->
          sprintf "(%s %s %s)" (lhsExpr.Print(padding, scope)) symbol (rhsExpr.Print(padding, scope))
       | TernaryOp(lhsExpr, lSymbol, midExpr, rSymbol, rhsExpr) ->

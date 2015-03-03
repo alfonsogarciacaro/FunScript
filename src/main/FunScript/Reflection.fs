@@ -7,20 +7,20 @@ open System.Reflection
 open System.Collections.Generic
 open Microsoft.FSharp.Reflection
 
+let jsIntegerTypes =
+   set [ typeof<sbyte>.FullName
+         typeof<byte>.FullName
+         typeof<int16>.FullName
+         typeof<int32>.FullName ]
+
 let jsNumberTypes =
-   set [
-      typeof<sbyte>.FullName
-      typeof<byte>.FullName
-      typeof<int16>.FullName
-      typeof<uint16>.FullName
-      typeof<int32>.FullName
-      typeof<uint32>.FullName
-      typeof<int64>.FullName
-      typeof<uint64>.FullName
-      typeof<float32>.FullName
-      typeof<float>.FullName
-      typeof<TimeSpan>.FullName // Treated as number
-   ]
+   set [ typeof<uint16>.FullName
+         typeof<uint32>.FullName
+         typeof<int64>.FullName
+         typeof<uint64>.FullName
+         typeof<float32>.FullName
+         typeof<float>.FullName
+         typeof<TimeSpan>.FullName ] // Treated as number
 
 let jsStringTypes =
    set [
@@ -34,8 +34,8 @@ let isGenericParameter (t : System.Type) =
 
 /// For generic specialization
 let isPrimitive (t : Type) =
-   jsNumberTypes.Contains t.FullName || t.IsEnum ||
-   jsStringTypes.Contains t.FullName ||
+   jsIntegerTypes.Contains t.FullName || jsNumberTypes.Contains t.FullName ||
+   jsStringTypes.Contains t.FullName || t.IsEnum ||
    t = typeof<bool>
 
 let isPrimaryConstructor (ci: MethodBase) =

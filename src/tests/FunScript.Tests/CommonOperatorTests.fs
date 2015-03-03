@@ -163,6 +163,16 @@ let ``the defaultArg function works``() =
       @@>
 
 [<Test>]
+let ``Unchecked.defaultof<_> works``() =
+   check  
+      <@@ 
+         let b = Unchecked.defaultof<bool>
+         let i = Unchecked.defaultof<int>
+         let f = Unchecked.defaultof<float>
+         (b.ToString().ToLower()) + (string i) + (sprintf "%.2f" f)
+      @@>
+
+[<Test>]
 let ``the ignore function works``() =
    check  
       <@@ 

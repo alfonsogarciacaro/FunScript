@@ -45,13 +45,6 @@ module private Replacements =
 
    let exn(msg : string) = Core.LanguagePrimitives.Exception(msg)
 
-// TODO: Specialize for ints/floats etc. to give 0. as in .NET
-let private defaultValue =
-   CompilerComponent.create <| fun (|Split|) _ returnStrategy ->
-      function
-      | Patterns.DefaultValue _ -> [ returnStrategy.Return Null ]
-      | _ -> []
-
 let private localized (name:string) =
    let sections = name.Split '-'
    JavaScriptNameMapper.sanitizeAux sections.[sections.Length - 1]
@@ -130,22 +123,24 @@ let private coerce =
       | _ -> []
 
 let private getPrimaryConstructorVar compiler (t: System.Type) =
-    let cons = t.GetConstructors(BindingFlags.Public |||
-                                 BindingFlags.NonPublic |||
-                                 BindingFlags.Instance).[0]
-    // Unions must be dealed with in the calling method
-    if FSharpType.IsTuple t then
-        t.GenericTypeArguments
-        |> List.ofArray
-        |> Reflection.getTupleConstructorVar compiler
-    elif FSharpType.IsRecord t then
-        Reflection.getRecordConstructorVar compiler t
-    elif FSharpType.IsExceptionRepresentation t then
-        Reflection.getCustomExceptionConstructorVar compiler cons
-    else
-        getObjectConstructorVar compiler cons
+   let cons =
+      t.GetConstructors(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
+      |> function [||] -> None | _ as arr -> Some arr.[0]
+   match cons with
+   | None -> None
+   | Some cons ->                   // Unions must be dealt with in the calling method
+      if FSharpType.IsTuple t then
+         t.GenericTypeArguments
+         |> List.ofArray
+         |> Reflection.getTupleConstructorVar compiler |> Some
+      elif FSharpType.IsRecord t then
+         Reflection.getRecordConstructorVar compiler t |> Some
+      elif FSharpType.IsExceptionRepresentation t then
+         Reflection.getCustomExceptionConstructorVar compiler cons |> Some
+      else
+         getObjectConstructorVar compiler cons |> Some
 
-// TODO: Add tests
+// TODO: Add Tests
 let private typeTest =
    CompilerComponent.create <| fun (|Split|) compiler returnStrategy ->
    function
@@ -160,28 +155,24 @@ let private typeTest =
           if t = typeof<obj> then
             [ returnStrategy.Return <| Boolean true ]
 
-          // Type information about function signature will be lost
-          elif FSharpType.IsFunction t then
-            returnTypeTest "typeof" (String "function")
+          elif typeof<System.Collections.Generic.IList<obj>>.IsAssignableFrom t then
+            returnTypeTest "instanceof" (EmitExpr (fun _ -> "Array"))
 
-          // Type information about collection generic will be lost
-          // Collections not based on JS arrays won't match this
-          elif typeof<System.Collections.IEnumerable>.IsAssignableFrom t then
-            returnTypeTest "instanceof" (String "Array")
+          // TODO: Allow type testing against interfaces? It would be possible
+          // (testing all types implementing the interface) but probably a bad practice
+          elif t.IsInterface then
+            [ returnStrategy.Return <| Boolean false ]
 
           // Primitives
-          elif Reflection.jsNumberTypes.Contains t.FullName || t.IsEnum then
+          elif t.IsEnum || Reflection.jsIntegerTypes.Contains t.FullName ||
+               Reflection.jsNumberTypes.Contains t.FullName then
             returnTypeTest "typeof" (String "number")
           elif Reflection.jsStringTypes.Contains t.FullName then
             returnTypeTest "typeof" (String "string")
           elif t = typeof<bool> then
             returnTypeTest "typeof" (String "boolean")
           elif t = typeof<System.DateTime> then
-            returnTypeTest "instanceof" (String "Date")
-
-          // Interfaces // TODO: Implement
-          elif t.IsInterface then
-            [ returnStrategy.Return <| Boolean false ]
+            returnTypeTest "instanceof" (EmitExpr (fun _ -> "Date"))
 
           // Union types: Test all union case constructors // TODO: Make this a global function?
           elif FSharpType.IsUnion t then
@@ -200,14 +191,12 @@ let private typeTest =
                 |> Seq.fold (fun (acc: JSExpr) uci ->
                     BinaryOp(getCaseConsRef uci, "||", acc)) firstCaseTest
                 |> fun allCasesTest -> [ returnStrategy.Return allCasesTest ]
-          
-          // Objects
-          else
+          else                                                                   // Objects
             getPrimaryConstructorVar compiler t
-            |> JSExpr.Reference
-            |> returnTypeTest "instanceof"
-
-       | _ -> [ returnStrategy.Return <| Boolean false ]
+            |> function
+               | Some var -> returnTypeTest "instanceof" (JSExpr.Reference var)
+               | None -> [ returnStrategy.Return <| Boolean false ]
+      | _ -> [ returnStrategy.Return <| Boolean false ]
    | _ -> [ returnStrategy.Return <| Boolean false ]
 
 let components = 
@@ -272,11 +261,6 @@ let components =
          CompilerComponent.unaryStatement <@ invalidOp @> Throw
          CompilerComponent.unaryStatement <@ failwith @> Throw
          CompilerComponent.binaryStatement <@ invalidArg @> (fun field msg -> Throw msg)
-
-         // Default values
-         CompilerComponent.nullary <@ Unchecked.defaultof<_> @> Null
-         defaultValue
-
 
          // OptimizedClosures
          CompilerComponent.unary 

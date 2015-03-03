@@ -362,6 +362,23 @@ let private propertyGetting =
       | Patterns.PropertyGet(Some(Patterns.Coerce(Patterns.Var var, t)), pi, exprs)
         when FSharpType.IsExceptionRepresentation pi.DeclaringType && pi.Name.StartsWith "Data" ->
          [ returnStrategy.Return <| PropertyGet(Reference var, pi.Name) ]
+
+      // Implement literals directly in code 
+      | Patterns.PropertyGet(None, pi, [])
+        when pi.PropertyType.IsPrimitive || pi.PropertyType.IsEnum || pi.PropertyType = typeof<string> ->
+        try
+            let v, t = pi.GetValue(null), pi.PropertyType
+            let expr =
+                if t.IsEnum then JSExpr.Integer(unbox v)          // TODO: Test if this works for TypeScript enumerations
+                elif t = typeof<bool> then JSExpr.Boolean(unbox v)
+                elif Reflection.jsStringTypes.Contains t.FullName then JSExpr.String(string v)
+                elif Reflection.jsIntegerTypes.Contains t.FullName then JSExpr.Integer(unbox v)
+                elif Reflection.jsNumberTypes.Contains t.FullName then JSExpr.Number(unbox v)
+                else failwithf "%s is not recognized as a primitive type" t.Name
+            [ returnStrategy.Return expr ]
+        with
+        | _ -> createCall split returnStrategy compiler [] (pi.GetGetMethod(true))
+
       | Patterns.PropertyGet(List objExpr, pi, exprs) ->
          let isField = 
             let mapping = pi.GetCustomAttribute<CompilationMappingAttribute>()
