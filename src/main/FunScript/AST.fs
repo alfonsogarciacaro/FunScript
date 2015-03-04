@@ -83,7 +83,14 @@ let addVarsToScope vars oldScope =
             scope, name::acc) (oldScope, [])
     newScope, names |> List.rev
 
-type JSRef = string
+type JSRef =
+   | Literal of string
+   | VarName of Var        // Used to get a var name that may be compressed
+   member x.GetName(scope:VariableScope ref) =
+      sprintf @"""%s""" <| 
+         match x with
+         | Literal s -> System.Web.HttpUtility.JavaScriptStringEncode s
+         | VarName v -> (!scope).ObtainNameScope v FromReference |> fst
 
 type JSExpr =
    | Null
@@ -98,7 +105,9 @@ type JSExpr =
    | Array of JSExpr list
    | Apply of JSExpr * JSExpr list
    | New of Var * JSExpr list
-   | Lambda of string option * Var list * JSBlock
+   // Constructors must be named for type testing (JS constructor.name),
+   // so we'll pass them the same variable it's being assigned to
+   | Lambda of Var option * Var list * JSBlock
    | UnaryOp of string * JSExpr
    | BinaryOp of JSExpr * string * JSExpr
    | TernaryOp of JSExpr * string * JSExpr * string * JSExpr
@@ -114,12 +123,14 @@ type JSExpr =
       | Reference ref -> (!scope).ObtainNameScope ref FromReference |> fst
       | Object propExprs ->
          let filling =
-            propExprs |> List.map (fun (name, expr) ->
+            propExprs |> List.map (fun (ref, expr) ->
+               let name = ref.GetName scope
                sprintf "%s: %s" name (expr.Print(padding, scope)))
             |> String.concat ", "
          sprintf "{%s}" filling
-      | PropertyGet(objExpr, var) ->
-         sprintf "%s.%s" (objExpr.Print(padding, scope)) var
+      | PropertyGet(objExpr, ref) ->
+         let name = ref.GetName scope
+         sprintf "%s[%s]" (objExpr.Print(padding, scope)) name
       | IndexGet(objExpr, indexExpr) ->
          sprintf "%s[%s]" (objExpr.Print(padding, scope)) (indexExpr.Print(padding, scope))
       | Array exprs -> 
@@ -141,9 +152,11 @@ type JSExpr =
             |> String.concat ", "
          sprintf "(new %s(%s))" ((!scope).ObtainNameScope ref FromReference |> fst) filling
       | Lambda(name, vars, block) ->
+         let name = match name with
+                    | Some var -> (!scope).ObtainNameScope var FromReference |> fst
+                    | None -> ""
          let oldScope = !scope
          let newScope, names = oldScope |> addVarsToScope vars
-         let name = match name with Some n -> n | None -> ""
          let filling = names |> String.concat ","
          scope := newScope
          let result =

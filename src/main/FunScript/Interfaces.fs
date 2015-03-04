@@ -43,7 +43,7 @@ let private generateImplDic compiler (interfaceType: Type) (implTypes: Type list
                   consVars
                   |> List.map (fun consVar ->
                         let vars, lambdaExpr = getVarsExpr()
-                        consVar.Name, generateImplMethod compiler typ vars lambdaExpr)
+                        VarName consVar, generateImplMethod compiler typ vars lambdaExpr)
                   |> Some
 //      with
 //      | _ -> None
@@ -59,20 +59,25 @@ let private defineMethod (compiler: ICompiler) (interfaceType: Type) (implTypes:
    | Some implDic ->
       let name = JavaScriptNameMapper.mapMethod mi
       let specialization = getMethodSpecialization compiler mi
-      let selfVar = Var("__self", interfaceType)
-      let argVars = mi.GetParameters() |> Seq.mapi (fun i arg ->
-         Var("__arg" + (string i), arg.ParameterType)) |> List.ofSeq
+      let implDicVar, selfVar, argVars =
+         Var("implDicVar", typeof<obj>),
+         Var("self", interfaceType),
+         mi.GetParameters() |> Seq.mapi (fun i arg ->
+            Var("arg" + (string i), arg.ParameterType)) |> List.ofSeq
       let vars = selfVar::argVars
       let varRefs = vars |> List.map (fun v -> Reference v)
       compiler.DefineGlobal (name + specialization) (fun var ->
          [ Assign(Reference var,
             Apply(Lambda(None, [],
                      Block [
-                        DeclareAndAssign(Var("__implDic", typeof<obj>), implDic)
+                        DeclareAndAssign(implDicVar, implDic)
                         Return(Lambda(None, vars,
                                  Block [
-                                    Return(Apply(EmitExpr(fun _ ->
-                                       "__implDic[Object.getPrototypeOf(__self).constructor.name]"), varRefs)) ] )) ] ), [])) ])
+                                    Return(Apply(EmitExpr (fun (i, scope) ->
+                                                sprintf "%s[Object.getPrototypeOf(%s).constructor.name]"
+                                                   ((!scope).ObtainNameScope implDicVar FromReference |> fst)
+                                                   ((!scope).ObtainNameScope selfVar FromReference |> fst)),
+                                            varRefs)) ] )) ] ), [])) ])
       |> ignore
 
 let build compiler (interfaces: (Type*Type list) list) =

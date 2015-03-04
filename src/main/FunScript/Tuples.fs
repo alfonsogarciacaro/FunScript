@@ -5,7 +5,7 @@ open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Reflection
 
 let itemsPropName = "Items"
-let getItem i ref = IndexGet(PropertyGet(ref, itemsPropName), Integer i)
+let getItem i ref = IndexGet(PropertyGet(ref, Literal itemsPropName), Integer i)
 
 let private creation =
    CompilerComponent.create <| fun (|Split|) compiler returnStrategy ->
@@ -34,8 +34,8 @@ let components = [
    CompilerComponent.unary <@ snd @> (fun arg -> arg |> getItem 1)
    CompilerComponent.unary 
       <@ Microsoft.FSharp.Reflection.FSharpValue.GetTupleFields @> 
-      (fun arg -> PropertyGet(arg, itemsPropName))
+      (fun arg -> PropertyGet(arg, Literal itemsPropName))
    CompilerComponent.binary 
       <@ fun obj i -> Microsoft.FSharp.Reflection.FSharpValue.GetTupleField(obj, i) @> 
-      (fun arg i -> IndexGet(PropertyGet(arg, itemsPropName), i))
+      (fun arg i -> IndexGet(PropertyGet(arg, Literal itemsPropName), i))
 ]

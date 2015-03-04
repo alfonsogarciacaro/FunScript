@@ -72,7 +72,7 @@ let private genMethod (mb:MethodBase) (replacementMi:MethodBase) (vars:Var list)
       [ Assign(Reference var, Lambda(None, vars, Block[EmitStatement(fun (padding, scope) -> code padding scope)])) ]
    | _ when mb.IsConstructor ->
       let fixedBodyExpr = replaceThisInExpr bodyExpr
-      [ Assign(Reference var, Lambda(Some(var.Name), vars, Block(compiler.Compile ReturnStrategies.returnFrom fixedBodyExpr))) ]
+      [ Assign(Reference var, Lambda(Some(var), vars, Block(compiler.Compile ReturnStrategies.returnFrom fixedBodyExpr))) ]
    | _ -> 
       [ Assign(Reference var, Lambda(None, vars, Block(compiler.Compile ReturnStrategies.returnFrom bodyExpr))) ]
 
@@ -165,10 +165,9 @@ let tryCreateGlobalMethod name compiler mb callType =
    match replaceIfAvailable compiler mb callType with
    | CallPattern getVarsExpr as replacementMi ->
       let specialization = Reflection.getMethodSpecialization compiler replacementMi
-      Some(
-         compiler.DefineGlobal (name + specialization) (fun var ->
-            let vars, bodyExpr = getVarsExpr()
-            genMethod mb replacementMi vars bodyExpr var compiler))
+      Some(compiler.DefineGlobal (name + specialization) (fun var ->
+         let vars, bodyExpr = getVarsExpr()
+         genMethod mb replacementMi vars bodyExpr var compiler))
    | _ -> None
 
 let createGlobalMethod name compiler mb callType =
@@ -329,9 +328,10 @@ let private createCall
       // For interfaces without replacements, the method implementation is delayed until
       // the end of the compilation so we know exactly how many types implement it
       | None ->
-         let specialization = Reflection.getMethodSpecialization compiler mi  
+         let specialization = Reflection.getMethodSpecialization compiler mi 
+         let var = Var.Global(name + specialization, typeof<obj>)
          [ yield! decls |> List.concat
-           yield returnStategy.Return <| Apply(EmitExpr(fun _ -> name + specialization), refs) ]
+           yield returnStategy.Return <| Apply(Reference var, refs) ]
    else
       match mi with
       | SpecialOp((ReflectedDefinition name) as mi)
@@ -340,7 +340,7 @@ let private createCall
          | [] -> []
          | objRef::argRefs ->
             [ yield! decls |> List.concat
-              yield returnStategy.Return <| Apply(PropertyGet(objRef, name), argRefs) ]
+              yield returnStategy.Return <| Apply(PropertyGet(objRef, Literal name), argRefs) ]
       | SpecialOp((ReflectedDefinition name) as mi)
       | (ReflectedDefinition name as mi) ->
          let methRef = createGlobalMethod name compiler mi Quote.MethodCall
@@ -364,8 +364,7 @@ let private getPropertyField split (compiler:InternalCompiler.ICompiler) (pi:Pro
       // TODO: wrap in function scope?
       compiler.DefineGlobalInitialization <|
          createCall split (ReturnStrategies.assignVar var) compiler [objExpr; exprs] (pi.GetGetMethod(true))
-      []
-   )
+      [])
 
 let private propertyGetting =
    CompilerComponent.create <| fun split compiler returnStrategy ->
@@ -373,7 +372,7 @@ let private propertyGetting =
       // F# Custom exceptions // TODO: refactor?
       | Patterns.PropertyGet(Some(Patterns.Coerce(Patterns.Var var, t)), pi, exprs)
         when FSharpType.IsExceptionRepresentation pi.DeclaringType && pi.Name.StartsWith "Data" ->
-         [ returnStrategy.Return <| PropertyGet(Reference var, pi.Name) ]
+         [ returnStrategy.Return <| PropertyGet(Reference var, Literal pi.Name) ]
 
       // Implement literals directly in code 
       | Patterns.PropertyGet(None, pi, [])
@@ -430,10 +429,13 @@ let private fieldGetting =
       function
       | Patterns.FieldGet(Some(Split(objDecl, objRef)), fi) ->
          [ yield! objDecl
-           yield returnStategy.Return <| PropertyGet(objRef, JavaScriptNameMapper.sanitizeAux fi.Name) ]
+           yield returnStategy.Return <|
+            PropertyGet(objRef, Literal <| JavaScriptNameMapper.sanitizeAux fi.Name) ]
       | Patterns.FieldGet(None, fi) ->
          let name = JavaScriptNameMapper.mapType fi.DeclaringType
-         [ yield returnStategy.Return <| PropertyGet(Reference (Var.Global(name, typeof<obj>)), JavaScriptNameMapper.sanitizeAux fi.Name) ]
+         [ yield returnStategy.Return <|
+            PropertyGet(Reference (Var.Global(name, typeof<obj>)),
+                        Literal <| JavaScriptNameMapper.sanitizeAux fi.Name) ]
       | _ -> []
 
 let private fieldSetting =
@@ -442,11 +444,12 @@ let private fieldSetting =
       | Patterns.FieldSet(Some(Split(objDecl, objRef)), fi, Split(valDecl, valRef)) ->
          [ yield! objDecl
            yield! valDecl
-           yield Assign(PropertyGet(objRef, JavaScriptNameMapper.sanitizeAux fi.Name), valRef) ]
+           yield Assign(PropertyGet(objRef, Literal <| JavaScriptNameMapper.sanitizeAux fi.Name), valRef) ]
       | Patterns.FieldSet(None, fi, Split(valDecl, valRef)) ->
          let name = JavaScriptNameMapper.mapType fi.DeclaringType
          [ yield! valDecl
-           yield Assign(PropertyGet(Reference (Var.Global(name, typeof<obj>)), JavaScriptNameMapper.sanitizeAux fi.Name), valRef) ]
+           yield Assign(PropertyGet(Reference (Var.Global(name, typeof<obj>)),
+                                    Literal <| JavaScriptNameMapper.sanitizeAux fi.Name), valRef) ]
       | _ -> []
 
 let private constructingInstances =

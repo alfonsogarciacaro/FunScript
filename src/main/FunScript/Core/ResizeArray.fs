@@ -23,7 +23,8 @@ type ResizeArray<'T> =
 
     // NOTE: If we use 'new Array(size)' the array is automatically filled with undefined values which is not
     // the expected behaviour in .NET so we just create empty arrays no matter the given initial capacity.
-    static member ZeroCreateWithSize(size: int) = ResizeArray<_>.ZeroCreate()
+    [<JSEmitInline("[]")>]
+    static member ZeroCreateWithSize(size: int): ResizeArray<'T> = failwith "never"
 
     static member OfSeq(items: seq<'T>) =
         let ra = ResizeArray<'T>.ZeroCreate()

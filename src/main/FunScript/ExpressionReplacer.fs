@@ -45,26 +45,25 @@ let inline (==) x y = obj.ReferenceEquals(x, y)
 let inline (!=) x y = not (x == y)
 
 let private getReplacementMethod (replacementMi:MethodInfo) args =
+   let mkGenericMethod (mi:MethodInfo) args =
+      if mi.IsGenericMethodDefinition then mi.MakeGenericMethod(args)
+      else if mi.IsGenericMethod then mi.GetGenericMethodDefinition().MakeGenericMethod(args)
+      else mi
+   let t = replacementMi.DeclaringType
+   let typeArgs, methArgs =
+      let count = t.GenericTypeArguments.Length
+      Array.ofSeq(Seq.take count args), Array.ofSeq(Seq.skip count args)
    if FSharpType.IsModule replacementMi.DeclaringType then
-      if replacementMi.IsGenericMethodDefinition then
-         replacementMi.MakeGenericMethod(args)
-      else if replacementMi.IsGenericMethod then
-         replacementMi.GetGenericMethodDefinition().MakeGenericMethod(args)
-      else replacementMi
+      mkGenericMethod replacementMi methArgs
    else
-      let typ =
-         let t = replacementMi.DeclaringType
-         if t.IsGenericTypeDefinition
-         then t.MakeGenericType(args)  // TODO: Attention
-         elif t.IsGenericType
-         then t.GetGenericTypeDefinition().MakeGenericType(args)
+      let t =
+         if t.IsGenericTypeDefinition then t.MakeGenericType(typeArgs)
+         elif t.IsGenericType then t.GetGenericTypeDefinition().MakeGenericType(typeArgs)
          else t
-      let meth = typ.GetMethod(replacementMi.Name) // TODO: Attention
-      if meth.IsGenericMethodDefinition then
-         meth.MakeGenericMethod(args)
-      else if meth.IsGenericMethod then
-         meth.GetGenericMethodDefinition().MakeGenericMethod(args)
-      else meth
+      let replacementMi =
+         t.GetMethods()
+         |> Array.find (fun x -> x.MetadataToken = replacementMi.MetadataToken)
+      mkGenericMethod replacementMi methArgs 
 
 let private isInlined (replacementMi:MethodInfo) = 
    (replacementMi.GetCustomAttribute<InlineAttribute>() != null ||

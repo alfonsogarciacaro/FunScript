@@ -17,9 +17,10 @@ let private creation =
       | Patterns.NewUnionCase(uci, exprs) ->
         let decls, refs = Reflection.getDeclarationAndReferences (|Split|) exprs
         if ignoredUnions.Contains uci.DeclaringType.Name then
-            let propNames = Reflection.getCaseVars uci |> List.map (fun (var,_) -> var.Name)
+            let propNames = Reflection.getCaseVars uci
+                            |> List.map (fun (var,_) -> Literal var.Name)
             let fields = 
-                ("Tag", Integer uci.Tag) ::
+                (Literal "Tag", Integer uci.Tag) ::
                 (List.zip propNames refs)
             // TODO: What about comparison?
             [ yield! decls |> Seq.concat 
@@ -35,14 +36,15 @@ let private matching =
     function
     | Patterns.UnionCaseTest(Split(objDecl, objRef), uci) ->
         [ yield! objDecl
-          yield returnStrategy.Return <| BinaryOp(PropertyGet(objRef, "Tag"), "==", Integer uci.Tag)
+          yield returnStrategy.Return <|
+                  BinaryOp(PropertyGet(objRef, Literal "Tag"), "==", Integer uci.Tag)
         ]
     | Patterns.Call(None, mi, [Split(objDecl, objRef)]) when 
             FSharpType.IsUnion mi.DeclaringType && 
             mi.Name = "GetTag" && 
             mi.ReturnType = typeof<int> ->
         [ yield! objDecl
-          yield returnStrategy.Return <| PropertyGet(objRef, "Tag")
+          yield returnStrategy.Return <| PropertyGet(objRef, Literal "Tag")
         ]
     | Patterns.Call(None, mi, [arg]) as e when 
             mi.DeclaringType.Name.Contains "FSharpOption" &&

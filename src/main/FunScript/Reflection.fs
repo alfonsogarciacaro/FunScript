@@ -87,30 +87,30 @@ let getTupleVars preffix n =
     [ 0 .. n - 1] |> List.map (fun i -> Var(sprintf "%s%i" preffix i, typeof<obj>))
 
 let getCustomExceptionConstructorVar (compiler: InternalCompiler.ICompiler) (ci: MethodBase) =
-    let createConstructor compiler n =
+    let cons compiler var n =
         let vars = getTupleVars "d" n
         let this = Var("__this", typeof<obj>)
-        None, vars, Block
+        Some(var), vars, Block
          [ yield CopyThisToVar(this)
            yield! vars |> List.mapi (fun i var ->
-            Assign(PropertyGet(Reference this, sprintf "Data%i" i), Reference var)) ]
+            Assign(PropertyGet(Reference this, Literal(sprintf "Data%i" i)), Reference var)) ]
     let name = JavaScriptNameMapper.mapMethod ci
     let argsLength = ci.GetParameters() |> Array.length
     compiler.DefineGlobal name (fun var -> 
-        [Assign(Reference var, Lambda <| createConstructor compiler argsLength)])
+        [Assign(Reference var, Lambda <| cons compiler var argsLength)])
 
 let getTupleConstructorVar compiler (typeArgs: Type list) =
-    let createConstructor compiler n =
+    let cons compiler var n =
        let vars = getTupleVars "Item" n
        let refs = vars |> List.map Reference
        let this = Var("__this", typeof<obj>)
-       None, vars, Block
+       Some(var), vars, Block
         [ yield CopyThisToVar(this)
-          yield Assign(PropertyGet(Reference this, "Items"), JSExpr.Array refs) ]
+          yield Assign(PropertyGet(Reference this, Literal "Items"), JSExpr.Array refs) ]
     let specialization = getSpecializationString compiler typeArgs
     let name = sprintf "Tuple%s" specialization
     compiler.DefineGlobal name (fun var -> 
-        [Assign(Reference var, Lambda <| createConstructor compiler typeArgs.Length)])
+        [Assign(Reference var, Lambda <| cons compiler var typeArgs.Length)])
 
 let getRecordVars recType =
    getFields recType
@@ -128,10 +128,10 @@ let getRecordConstructorVar compiler (recType : System.Type) =
         let cons =
             let vars = getRecordVars recType
             let this = Var("__this", typeof<obj>)
-            Some(name), vars, Block
+            Some(var), vars, Block
                 [ yield CopyThisToVar(this)
                   for var in vars do
-                    yield Assign(PropertyGet(Reference this, var.Name), Reference var) ]
+                    yield Assign(PropertyGet(Reference this, Literal var.Name), Reference var) ]
         [ Assign(Reference var, Lambda cons) ])
 
 let getCaseConsVars caseType = 
@@ -145,20 +145,21 @@ let getCaseVars (uci:UnionCaseInfo) =
    else getCaseConsVars t
 
 let getUnionCaseConstructorVar compiler (uci : UnionCaseInfo) =
+    let cons compiler var uci =
+       let vars = getCaseVars uci |> List.map fst
+       let this = Var("__this", typeof<obj>)
+       Some(var), vars, Block
+        [ yield CopyThisToVar(this)
+          yield Assign(PropertyGet(Reference this, Literal "Tag"), Integer uci.Tag)
+          yield Assign(PropertyGet(Reference this, Literal "_CaseName"), JSExpr.String uci.Name)
+          for var in vars do
+            yield Assign(PropertyGet(Reference this, Literal var.Name), Reference var) ]
     let name =
        let typeArgs = getGenericTypeArgs uci.DeclaringType
        let specialization = getSpecializationString compiler typeArgs
        JavaScriptNameMapper.mapType uci.DeclaringType + "_" + uci.Name + specialization
-    let createConstructor uci compiler =
-       let vars = getCaseVars uci |> List.map fst
-       let this = Var("__this", typeof<obj>)
-       Some(name), vars, Block
-        [ yield CopyThisToVar(this)
-          yield Assign(PropertyGet(Reference this, "Tag"), Integer uci.Tag)
-          yield Assign(PropertyGet(Reference this, "_CaseName"), JSExpr.String uci.Name)
-          for var in vars do yield Assign(PropertyGet(Reference this, var.Name), Reference var) ]
     compiler.DefineGlobal name (fun var -> 
-        [Assign(Reference var, Lambda <| createConstructor uci compiler)])
+        [Assign(Reference var, Lambda <| cons compiler var uci)])
 
 let getLambdaVars(fields : Type[]) =
    let fieldCount = fields.Length
@@ -244,8 +245,7 @@ let rec buildRuntimeType (compiler : InternalCompiler.ICompiler) (t : System.Typ
    let typeName = sprintf "t_%s" (JavaScriptNameMapper.mapType t)
    compiler.DefineGlobal typeName (fun var ->
       let expr = netTypeExpr compiler (buildRuntimeType compiler) t
-      compiler.Compile (ReturnStrategies.assignVar var) expr
-   )
+      compiler.Compile (ReturnStrategies.assignVar var) expr)
 
 let components = 
    [

@@ -38,13 +38,14 @@ let createComponents(isEventMappingEnabled) =
     ]
 
 type Compiler =
+   // TODO: Optimize when program remains in memory. Keep InternalCompiler resetting globals and interfaces
+   // and keeping components if possible. Reset ReflectedDefinition cache?
    static member private CompileImpl(expression, adjustComponents, noReturn, shouldCompress, isEventMappingEnabled) = 
       let shouldCompress = defaultArg shouldCompress false
       let isEventMappingEnabled = defaultArg isEventMappingEnabled true
       let returnStrat = 
          if defaultArg noReturn false then ReturnStrategies.inplace
          else ReturnStrategies.returnFrom
-      
       JavaScriptNameMapper.reset()
       let components = createComponents isEventMappingEnabled
       let compiler = InternalCompiler.Compiler(adjustComponents components, Interfaces.build)

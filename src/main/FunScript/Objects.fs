@@ -21,7 +21,8 @@ let private propertyGetter =
             when isAvailable compiler (pi.GetGetMethod(true))
             ->
          [ yield! objDecl 
-           yield returnStrategy.Return <| PropertyGet(objRef, JavaScriptNameMapper.sanitizeAux pi.Name)
+           yield returnStrategy.Return <| PropertyGet(objRef,
+                 Literal <| JavaScriptNameMapper.sanitizeAux pi.Name)
          ]
       | _ -> []
 
@@ -33,7 +34,7 @@ let private propertySetter =
             ->
          [ yield! objDecl 
            yield! valDecl
-           yield Assign(PropertyGet(objRef, JavaScriptNameMapper.sanitizeAux pi.Name), valRef)
+           yield Assign(PropertyGet(objRef, Literal <| JavaScriptNameMapper.sanitizeAux pi.Name), valRef)
            if returnStrategy = ReturnStrategies.inplace then
                yield returnStrategy.Return Null 
          ]

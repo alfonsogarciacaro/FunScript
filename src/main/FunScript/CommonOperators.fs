@@ -111,7 +111,7 @@ let private coerce =
                         let vars, lambdaExpr = getVarsExpr()
                         let objVar = List.head vars
                         let vars = List.tail vars
-                        name,
+                        Literal name,
                         Lambda(
                            None, vars,
                            Block [
@@ -165,15 +165,14 @@ let private typeTest =
           if t = typeof<obj> then
             [ returnStrategy.Return <| Boolean true ]
 
-          elif typeof<System.Collections.Generic.IList<obj>>.IsAssignableFrom t then
-            returnTypeTest "instanceof" (EmitExpr (fun _ -> "Array"))
-
           // TODO: Allow type testing against interfaces? It would be possible
           // (testing all types implementing the interface) but probably a bad practice
           elif t.IsInterface then
             [ returnStrategy.Return <| Boolean false ]
 
           // Primitives
+          elif t.IsArray then
+            returnTypeTest "instanceof" <| EmitExpr (fun _ -> "Array")
           elif t.IsEnum || Reflection.jsIntegerTypes.Contains t.FullName ||
                Reflection.jsNumberTypes.Contains t.FullName then
             returnTypeTest "typeof" (String "number")
@@ -182,7 +181,7 @@ let private typeTest =
           elif t = typeof<bool> then
             returnTypeTest "typeof" (String "boolean")
           elif t = typeof<System.DateTime> then
-            returnTypeTest "instanceof" (EmitExpr (fun _ -> "Date"))
+            returnTypeTest "instanceof" <| EmitExpr (fun _ -> "Date")
 
           // Union types: Test all union case constructors // TODO: Make this a global function?
           elif FSharpType.IsUnion t then
@@ -249,8 +248,8 @@ let components =
          CompilerComponent.unary <@ single @> id
          CompilerComponent.unary <@ float32 @> id
          CompilerComponent.unary <@ double @> id
-         CompilerComponent.unary <@ fun x -> string x @> (fun expr -> Apply(PropertyGet(expr, "toString"),[])) 
-         CompilerComponent.unary <@ fun x -> x.ToString() @> (fun expr -> Apply(PropertyGet(expr, "toString"),[])) 
+         CompilerComponent.unary <@ fun x -> string x @> (fun expr -> Apply(PropertyGet(expr, Literal "toString"),[])) 
+         CompilerComponent.unary <@ fun x -> x.ToString() @> (fun expr -> Apply(PropertyGet(expr, Literal "toString"),[])) 
          ExpressionReplacer.create <@ char @> <@ FunScript.Core.String.FromCharCode @>
           
          // Seq + ranges
