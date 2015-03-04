@@ -83,6 +83,7 @@
     <Compile Include="PrimitiveTypes.fs" />
     <Compile Include="Objects.fs" />
     <Compile Include="ReflectedDefinitions.fs" />
+    <Compile Include="Interfaces.fs" />
     <Compile Include="Comparison.fs" />
     <Compile Include="Arithmetic.fs" />
     <Compile Include="Logic.fs" />

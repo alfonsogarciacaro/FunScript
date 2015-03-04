@@ -6,7 +6,7 @@ open Microsoft.FSharp.Quotations
 
 let memoize f =
     let cache = Dictionary(HashIdentity.Reference)
-    fun x ->
+    fun x -> 
         match cache.TryGetValue x with
         | true, v -> v
         | false, _ ->

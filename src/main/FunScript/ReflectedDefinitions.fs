@@ -14,7 +14,7 @@ let private (|NonNull|_|) x =
    else Some x
 
 let private (|ReflectedDefinition|_|) (mi:MethodBase) =
-   if mi.DeclaringType.IsInterface then Some mi.Name // TODO: Fix after changing the interface implementation
+   if mi.DeclaringType.IsInterface then Some mi.Name // TODO: Only for Enumerable/Enumerator/... Fix
    else
       match Expr.tryGetReflectedDefinition mi with
       | Some _ -> Some(JavaScriptNameMapper.mapMethod mi)
@@ -69,18 +69,12 @@ let private genMethod (mb:MethodBase) (replacementMi:MethodBase) (vars:Var list)
                 acc.Replace(sprintf "{%i}" i, replacement)
                 ) meth.Emit
          conflictResolution + body
-      [ Assign(Reference var, Lambda(vars, Block[EmitStatement(fun (padding, scope) -> code padding scope)])) ]
+      [ Assign(Reference var, Lambda(None, vars, Block[EmitStatement(fun (padding, scope) -> code padding scope)])) ]
    | _ when mb.IsConstructor ->
-      
       let fixedBodyExpr = replaceThisInExpr bodyExpr
-      [
-         Assign(Reference var, Lambda(vars, Block(compiler.Compile ReturnStrategies.returnFrom fixedBodyExpr)))
-      ]
+      [ Assign(Reference var, Lambda(Some(var.Name), vars, Block(compiler.Compile ReturnStrategies.returnFrom fixedBodyExpr))) ]
    | _ -> 
-      [ Assign(
-         Reference var, 
-         Lambda(vars, 
-            Block(compiler.Compile ReturnStrategies.returnFrom bodyExpr))) ]
+      [ Assign(Reference var, Lambda(None, vars, Block(compiler.Compile ReturnStrategies.returnFrom bodyExpr))) ]
 
 let private deconstructTuple (tupleVar : Var) =
     if tupleVar.Type = typeof<unit> then
@@ -150,6 +144,10 @@ let private extractVars (mb : MethodBase) (argCounts : CompilationArgumentCounts
         freeVars, bodyExpr
     | expr -> [], expr
 
+let notLegacyInterface (str: string) =
+   ["Enumerable"; "Enumerator"; "List"; "Comparer"; "Comparable"; "Disposable"]
+   |> List.exists (fun x -> str.Contains(x)) |> not
+
 let methodCallPattern (mb:MethodBase) =
     let argCounts = mb.GetCustomAttribute<CompilationArgumentCountsAttribute>()
     match Expr.tryGetReflectedDefinition mb with
@@ -166,8 +164,7 @@ let replaceIfAvailable (compiler:InternalCompiler.ICompiler) (mb : MethodBase) c
 let tryCreateGlobalMethod name compiler mb callType =
    match replaceIfAvailable compiler mb callType with
    | CallPattern getVarsExpr as replacementMi ->
-      let typeArgs = Reflection.getGenericMethodArgs replacementMi
-      let specialization = Reflection.getSpecializationString compiler typeArgs
+      let specialization = Reflection.getMethodSpecialization compiler replacementMi
       Some(
          compiler.DefineGlobal (name + specialization) (fun var ->
             let vars, bodyExpr = getVarsExpr()
@@ -314,27 +311,42 @@ let private jsEmitInlineMethodCalling =
 
 let private (|SpecialOp|_|) = Quote.specialOp
 
+
 let private createCall 
       (|Split|) 
       (returnStategy:InternalCompiler.IReturnStrategy)
       (compiler:InternalCompiler.ICompiler)
-      exprs mi =
+      exprs (mi: MethodInfo) =
    let exprs = exprs |> List.concat
    let decls, refs = Reflection.getDeclarationAndReferences (|Split|) exprs
-   match mi with
-   | SpecialOp((ReflectedDefinition name) as mi)
-   | (ReflectedDefinition name as mi) when mi.DeclaringType.IsInterface ->
-      match refs with
-      | [] -> []
-      | objRef::argRefs ->
+   if mi.DeclaringType.IsInterface && notLegacyInterface mi.DeclaringType.Name then
+      let name = JavaScriptNameMapper.mapMethod mi
+      match compiler.ReplacementFor mi Quote.MethodCall with
+      | Some replacement ->
+         let methRef = createGlobalMethod name compiler replacement Quote.MethodCall
          [  yield! decls |> List.concat
-            yield returnStategy.Return <| Apply(PropertyGet(objRef, name), argRefs) ] // TODO: Fix after changing the interface implementation
-   | SpecialOp((ReflectedDefinition name) as mi)
-   | (ReflectedDefinition name as mi) ->
-      let methRef = createGlobalMethod name compiler mi Quote.MethodCall
-      [  yield! decls |> List.concat
-         yield returnStategy.Return <| Apply(Reference methRef, refs) ]
-   | _ -> []
+            yield returnStategy.Return <| Apply(Reference methRef, refs) ]
+      // For interfaces without replacements, the method implementation is delayed until
+      // the end of the compilation so we know exactly how many types implement it
+      | None ->
+         let specialization = Reflection.getMethodSpecialization compiler mi  
+         [ yield! decls |> List.concat
+           yield returnStategy.Return <| Apply(EmitExpr(fun _ -> name + specialization), refs) ]
+   else
+      match mi with
+      | SpecialOp((ReflectedDefinition name) as mi)
+      | (ReflectedDefinition name as mi) when mi.DeclaringType.IsInterface -> // Only for Enumerable/Enumerator/... Fix
+         match refs with
+         | [] -> []
+         | objRef::argRefs ->
+            [ yield! decls |> List.concat
+              yield returnStategy.Return <| Apply(PropertyGet(objRef, name), argRefs) ]
+      | SpecialOp((ReflectedDefinition name) as mi)
+      | (ReflectedDefinition name as mi) ->
+         let methRef = createGlobalMethod name compiler mi Quote.MethodCall
+         [  yield! decls |> List.concat
+            yield returnStategy.Return <| Apply(Reference methRef, refs) ]
+      | _ -> []
 
 let private methodCalling =
    CompilerComponent.create <| fun split compiler returnStategy ->
@@ -344,7 +356,7 @@ let private methodCalling =
       | _ -> []
 
 let private getPropertyField split (compiler:InternalCompiler.ICompiler) (pi:PropertyInfo) objExpr exprs =
-   let specialization = Reflection.getSpecializationString compiler (Reflection.getGenericTypeArgs pi.DeclaringType)
+   let specialization = Reflection.getTypeSpecialization compiler pi.DeclaringType
    let name = 
       JavaScriptNameMapper.sanitizeAux
          (JavaScriptNameMapper.mapType pi.DeclaringType + "_" + pi.Name + specialization)

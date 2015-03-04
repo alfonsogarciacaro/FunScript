@@ -98,7 +98,7 @@ type JSExpr =
    | Array of JSExpr list
    | Apply of JSExpr * JSExpr list
    | New of Var * JSExpr list
-   | Lambda of Var list * JSBlock
+   | Lambda of string option * Var list * JSBlock
    | UnaryOp of string * JSExpr
    | BinaryOp of JSExpr * string * JSExpr
    | TernaryOp of JSExpr * string * JSExpr * string * JSExpr
@@ -140,13 +140,14 @@ type JSExpr =
                argExpr.Print(padding, scope))
             |> String.concat ", "
          sprintf "(new %s(%s))" ((!scope).ObtainNameScope ref FromReference |> fst) filling
-      | Lambda(vars, block) ->
+      | Lambda(name, vars, block) ->
          let oldScope = !scope
          let newScope, names = oldScope |> addVarsToScope vars
+         let name = match name with Some n -> n | None -> ""
          let filling = names |> String.concat ","
          scope := newScope
          let result =
-            sprintf "(function(%s) " filling
+            sprintf "(function %s(%s) " name filling
 //            + newL
             + block.Print(padding, scope)
             + ")"

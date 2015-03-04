@@ -8,7 +8,7 @@ let private toShortCircuit (|Split|) (compiler : InternalCompiler.ICompiler) rhs
     // Unless it is compilable to a javascript expression.
     match compiler.Compile ReturnStrategies.returnFrom rhs with
     | [ AST.Return rhs ] -> rhs
-    | rhsBody -> Apply(Lambda([], Block rhsBody), [])
+    | rhsBody -> Apply(Lambda(None, [], Block rhsBody), [])
 
 let private operators =
    CompilerComponent.create <| fun (|Split|) compiler returnStrategy ->

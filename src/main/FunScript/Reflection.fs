@@ -63,6 +63,12 @@ let getSpecializationString (compiler : InternalCompiler.ICompiler) ts =
    |> String.concat "_"
    |> JavaScriptNameMapper.sanitizeAux
 
+let getTypeSpecialization compiler t =
+   getSpecializationString compiler (getGenericTypeArgs t)
+
+let getMethodSpecialization compiler mb =
+   getSpecializationString compiler (getGenericMethodArgs mb)
+
 let getDeclarationAndReferences (|Split|) exprs =
     exprs 
     |> List.map (fun (Split(valDecl, valRef)) -> valDecl, valRef)
@@ -84,7 +90,7 @@ let getCustomExceptionConstructorVar (compiler: InternalCompiler.ICompiler) (ci:
     let createConstructor compiler n =
         let vars = getTupleVars "d" n
         let this = Var("__this", typeof<obj>)
-        vars, Block
+        None, vars, Block
          [ yield CopyThisToVar(this)
            yield! vars |> List.mapi (fun i var ->
             Assign(PropertyGet(Reference this, sprintf "Data%i" i), Reference var)) ]
@@ -98,7 +104,7 @@ let getTupleConstructorVar compiler (typeArgs: Type list) =
        let vars = getTupleVars "Item" n
        let refs = vars |> List.map Reference
        let this = Var("__this", typeof<obj>)
-       vars, Block
+       None, vars, Block
         [ yield CopyThisToVar(this)
           yield Assign(PropertyGet(Reference this, "Items"), JSExpr.Array refs) ]
     let specialization = getSpecializationString compiler typeArgs
@@ -122,7 +128,7 @@ let getRecordConstructorVar compiler (recType : System.Type) =
         let cons =
             let vars = getRecordVars recType
             let this = Var("__this", typeof<obj>)
-            vars, Block
+            Some(name), vars, Block
                 [ yield CopyThisToVar(this)
                   for var in vars do
                     yield Assign(PropertyGet(Reference this, var.Name), Reference var) ]
@@ -139,18 +145,18 @@ let getCaseVars (uci:UnionCaseInfo) =
    else getCaseConsVars t
 
 let getUnionCaseConstructorVar compiler (uci : UnionCaseInfo) =
-    let createConstructor uci compiler =
-       let vars = getCaseVars uci |> List.map fst
-       let this = Var("__this", typeof<obj>)
-       vars, Block
-        [ yield CopyThisToVar(this)
-          yield Assign(PropertyGet(Reference this, "Tag"), Integer uci.Tag)
-          yield Assign(PropertyGet(Reference this, "_CaseName"), JSExpr.String uci.Name)
-          for var in vars do yield Assign(PropertyGet(Reference this, var.Name), Reference var) ]
     let name =
        let typeArgs = getGenericTypeArgs uci.DeclaringType
        let specialization = getSpecializationString compiler typeArgs
        JavaScriptNameMapper.mapType uci.DeclaringType + "_" + uci.Name + specialization
+    let createConstructor uci compiler =
+       let vars = getCaseVars uci |> List.map fst
+       let this = Var("__this", typeof<obj>)
+       Some(name), vars, Block
+        [ yield CopyThisToVar(this)
+          yield Assign(PropertyGet(Reference this, "Tag"), Integer uci.Tag)
+          yield Assign(PropertyGet(Reference this, "_CaseName"), JSExpr.String uci.Name)
+          for var in vars do yield Assign(PropertyGet(Reference this, var.Name), Reference var) ]
     compiler.DefineGlobal name (fun var -> 
         [Assign(Reference var, Lambda <| createConstructor uci compiler)])
 

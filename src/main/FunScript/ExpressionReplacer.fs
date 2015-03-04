@@ -5,6 +5,7 @@ open CompilerComponent
 open Microsoft.FSharp.Quotations
 open System.Reflection
 open System
+open Microsoft.FSharp.Reflection
 
 let private buildInlineReplacement (mi:MethodBase) (args:_ list) =
    match Expr.tryGetReflectedDefinition mi with
@@ -44,11 +45,26 @@ let inline (==) x y = obj.ReferenceEquals(x, y)
 let inline (!=) x y = not (x == y)
 
 let private getReplacementMethod (replacementMi:MethodInfo) args =
-   if replacementMi.IsGenericMethodDefinition then
-      replacementMi.MakeGenericMethod(args)
-   else if replacementMi.IsGenericMethod then
-      replacementMi.GetGenericMethodDefinition().MakeGenericMethod(args)
-   else replacementMi
+   if FSharpType.IsModule replacementMi.DeclaringType then
+      if replacementMi.IsGenericMethodDefinition then
+         replacementMi.MakeGenericMethod(args)
+      else if replacementMi.IsGenericMethod then
+         replacementMi.GetGenericMethodDefinition().MakeGenericMethod(args)
+      else replacementMi
+   else
+      let typ =
+         let t = replacementMi.DeclaringType
+         if t.IsGenericTypeDefinition
+         then t.MakeGenericType(args)  // TODO: Attention
+         elif t.IsGenericType
+         then t.GetGenericTypeDefinition().MakeGenericType(args)
+         else t
+      let meth = typ.GetMethod(replacementMi.Name) // TODO: Attention
+      if meth.IsGenericMethodDefinition then
+         meth.MakeGenericMethod(args)
+      else if meth.IsGenericMethod then
+         meth.GetGenericMethodDefinition().MakeGenericMethod(args)
+      else meth
 
 let private isInlined (replacementMi:MethodInfo) = 
    (replacementMi.GetCustomAttribute<InlineAttribute>() != null ||

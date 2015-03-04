@@ -17,7 +17,7 @@ let private forLoop =
             let countVar, block =
                if hasClosure then
                   let mutableName = compiler.NextTempVar()
-                  let block = Block [Do <| Apply(Lambda([var], Block block), [Reference mutableName])]
+                  let block = Block [Do <| Apply(Lambda(None, [var], Block block), [Reference mutableName])]
                   mutableName, block
                else var, Block block
                // Messiness here is to get around the closure problem in javascript for loops.
@@ -34,7 +34,7 @@ let private whileLoop =
             | [AST.Return condExpr] ->
                 [ WhileLoop(condExpr, Block block) ]
             | condBody ->
-                let condLambda = Lambda([], Block condBody)
+                let condLambda = Lambda(None, [], Block condBody)
                 let condVar = compiler.NextTempVar()
                 [ 
                     yield DeclareAndAssign(condVar, condLambda)

@@ -49,7 +49,6 @@ let private localized (name:string) =
    let sections = name.Split '-'
    JavaScriptNameMapper.sanitizeAux sections.[sections.Length - 1]
 
-// TODO: Refactor!!!
 let private coerce =
    CompilerComponent.create <| fun (|Split|) compiler returnStrategy ->
       function
@@ -72,53 +71,64 @@ let private coerce =
             || (expr.Type.IsInterface && t.IsAssignableFrom expr.Type)
             || (t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<_ System.Collections.Generic.IList>) then 
             compiler.Compile returnStrategy expr
-         // Interfaces // TODO: Generate global methods instead of new object
+         // Interfaces
          elif t.IsInterface then
-            let actualType = expr.Type
-            let targetMethods =
-               [
-                  for i in ExpressionReplacer.getInterfaces t do
-                     let mapping = actualType.GetInterfaceMap i
-                     yield! mapping.TargetMethods
-               ]
-            let members =
-               targetMethods
-               |> Seq.map (fun realMi -> 
-                  let replacementMi = ReflectedDefinitions.replaceIfAvailable compiler realMi Quote.CallType.MethodCall
-                  localized replacementMi.Name, replacementMi)
-               |> Seq.groupBy fst
-               |> Seq.map (fun (name, mis) ->
-                  name, mis |> Seq.tryPick (snd >> methodCallPattern))
-               |> Seq.toArray
-            let hasAllMembers =
-               members |> Array.forall (snd >> Option.isSome)
-            if hasAllMembers then
-               let impl = Var("impl", typeof<obj>)
-               let members = 
-                  members
-                  |> Array.map (fun (name, expr) -> name, Option.get expr)
-                  |> Array.map (fun (name, getVarsExpr) ->
-                     let vars, lambdaExpr = getVarsExpr()
-                     let objVar = List.head vars
-                     let vars = List.tail vars
-                     name,
-                     Lambda(
-                        vars,
-                        Block [
-                           Return(
-                              Apply(
-                                 Lambda(
-                                    objVar::vars,
-                                    Block(compiler.Compile ReturnStrategies.returnFrom lambdaExpr)),
-                                 (impl :: vars) |> List.map Reference))
-                        ]))
-                  |> Array.toList
-               [
-                  yield Declare [impl]
-                  yield! compiler.Compile (ReturnStrategies.assignVar impl) expr
-                  yield returnStrategy.Return(Object members)
-               ]
-            else compiler.Compile returnStrategy expr
+            if notLegacyInterface t.Name then
+               let typeArgs = if t.IsGenericType then t.GetGenericArguments() else Array.empty
+               t.GetInterfaces()
+               |> Seq.map (fun x ->
+                  if x.IsGenericTypeDefinition
+                  then x.MakeGenericType typeArgs // TODO: This will fail if the number of typeArgs is different
+                  else x)
+               |> Seq.append [t]
+               |> Seq.iter (fun x -> compiler.DefineInterface x expr.Type)
+               compiler.Compile returnStrategy expr
+            else
+               let actualType = expr.Type
+               let targetMethods =
+                  [
+                     for i in ExpressionReplacer.getInterfaces t do
+                        let mapping = actualType.GetInterfaceMap i
+                        yield! mapping.TargetMethods
+                  ]
+               let members =
+                  targetMethods
+                  |> Seq.map (fun realMi -> 
+                     let replacementMi = ReflectedDefinitions.replaceIfAvailable compiler realMi Quote.CallType.MethodCall
+                     localized replacementMi.Name, replacementMi)
+                  |> Seq.groupBy fst
+                  |> Seq.map (fun (name, mis) ->
+                     name, mis |> Seq.tryPick (snd >> methodCallPattern))
+                  |> Seq.toArray
+               let hasAllMembers =
+                  members |> Array.forall (snd >> Option.isSome)
+               if hasAllMembers then
+                  let impl = Var("impl", typeof<obj>)
+                  let members = 
+                     members
+                     |> Array.map (fun (name, expr) -> name, Option.get expr)
+                     |> Array.map (fun (name, getVarsExpr) ->
+                        let vars, lambdaExpr = getVarsExpr()
+                        let objVar = List.head vars
+                        let vars = List.tail vars
+                        name,
+                        Lambda(
+                           None, vars,
+                           Block [
+                              Return(
+                                 Apply(
+                                    Lambda(
+                                       None, objVar::vars,
+                                       Block(compiler.Compile ReturnStrategies.returnFrom lambdaExpr)),
+                                    (impl :: vars) |> List.map Reference))
+                           ]))
+                     |> Array.toList
+                  [
+                     yield Declare [impl]
+                     yield! compiler.Compile (ReturnStrategies.assignVar impl) expr
+                     yield returnStrategy.Return(Object members)
+                  ]
+               else compiler.Compile returnStrategy expr
          else compiler.Compile returnStrategy expr
       | _ -> []
 

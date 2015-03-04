@@ -95,10 +95,10 @@ let private definition =
       function
       | Patterns.Lambda(var, expr) ->
          let block = compiler.Compile ReturnStrategies.returnFrom expr
-         [ yield returnStrategy.Return <| Lambda([var], Block block) ]
+         [ yield returnStrategy.Return <| Lambda(None, [var], Block block) ]
       | Patterns.NewDelegate(_, vars, expr) ->
          let block = compiler.Compile ReturnStrategies.returnFrom expr
-         [ yield returnStrategy.Return <| Lambda(vars, Block block) ]
+         [ yield returnStrategy.Return <| Lambda(None, vars, Block block) ]
       | _ -> []
 
 let components = [ 

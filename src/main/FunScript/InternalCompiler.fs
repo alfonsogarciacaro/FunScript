@@ -17,6 +17,7 @@ type ICompiler =
    abstract NextTempVar: unit -> Var
    abstract DefineGlobal: string -> (Var -> JSStatement list) -> Var
    abstract DefineGlobalInitialization: JSStatement list -> unit
+   abstract DefineInterface: Type -> Type -> unit
    abstract Globals: JSStatement list
 
 type ICompilerComponent =
@@ -32,7 +33,7 @@ type CompilerComponent =
    | CallReplacer of CallReplacer
    | CompilerComponent of ICompilerComponent
 
-type Compiler(components) as this = 
+type Compiler(components, buildInterfaces) as this = 
    let parameterKey (mb : MethodBase) =
       mb.GetParameters() |> Array.map (fun pi ->
          pi.ParameterType.Name)
@@ -132,6 +133,7 @@ type Compiler(components) as this =
    let nextId = ref 0
 
    let mutable globals = Map.empty
+   let mutable interfaces = Map.empty
 
    let define name cons =
       match globals |> Map.tryFind name with
@@ -144,16 +146,23 @@ type Compiler(components) as this =
          globals <- globals |> Map.add name (var, assignment)
          var
 
+   let defineInterface (interfaceType: Type) (implType: Type) =
+      let newEntry =
+         match interfaces |> Map.tryFind interfaceType.FullName with
+         | Some (_, implTypes) -> (interfaceType, implType::implTypes)
+         | None -> (interfaceType, [implType])
+      interfaces <- interfaces |> Map.add interfaceType.FullName newEntry
+
    let mutable initialization = List.empty
 
    let getGlobals() =
-      let globals = globals |> Map.toList |> List.map snd
+      buildInterfaces this (interfaces |> Seq.map (fun x -> x.Value) |> List.ofSeq)
 
+      let globals = globals |> Map.toList |> List.map snd
       let declarations = 
          match globals with
          | [] -> []
          | _ -> [Declare (globals |> List.map (fun (var, _) -> var))]
-
       let assignments = globals |> List.collect snd
 
       List.append
@@ -207,6 +216,9 @@ type Compiler(components) as this =
 
       member __.DefineGlobalInitialization stmts =
          initialization <- List.append initialization stmts
+
+      member __.DefineInterface interfaceType implType =
+         defineInterface interfaceType implType
 
       member __.Globals = getGlobals()
          

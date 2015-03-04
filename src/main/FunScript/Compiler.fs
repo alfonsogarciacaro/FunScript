@@ -47,7 +47,7 @@ type Compiler =
       
       JavaScriptNameMapper.reset()
       let components = createComponents isEventMappingEnabled
-      let compiler = InternalCompiler.Compiler(adjustComponents components)
+      let compiler = InternalCompiler.Compiler(adjustComponents components, Interfaces.build)
       let program = compiler.Compile returnStrat expression
       let reflectedDefs = compiler.Globals
       let block = List.append reflectedDefs program
