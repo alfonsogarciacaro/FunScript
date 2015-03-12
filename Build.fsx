@@ -12,7 +12,7 @@ let dataPackageDir = "./build/data/deploy/"
 let rxBuildDir = "./build/rx/bin/"
 let rxPackageDir = "./build/rx/deploy/"
 
-let testBuildDir = "./build/data/bin/"
+let testBuildDir = "./build/tests/bin/"
 
 let dependenciesDir = "./src/packages/"
 
@@ -47,23 +47,15 @@ let baseAttributes = [
 
 Target "Build-Main" (fun () ->
 
-    CreateFSharpAssemblyInfo "src/main/FunScript/AssemblyInfo.fs" 
+    CreateFSharpAssemblyInfo "src/main/AssemblyInfo.fs" 
         [
             yield Attribute.Title "TypeInferred.FunScript"
             yield Attribute.Description "An F# to JavaScript Compiler - FunScript"
             yield Attribute.Guid "ABBDBFC5-F6F0-4BB7-89D8-9FE9D105C613"
             yield! baseAttributes
         ]
-        
-    CreateFSharpAssemblyInfo "src/main/FunScript.Interop/AssemblyInfo.fs" 
-        [
-            yield Attribute.Title "TypeInferred.FunScript.Interop"
-            yield Attribute.Description "FFI Interop Attributes - FunScript"
-            yield Attribute.Guid "9A9600A3-CCCD-4DD1-A52A-EA66E0FC2A54"
-            yield! baseAttributes
-        ]
 
-    let projectFiles = !! "src/main/**/*.fsproj"
+    let projectFiles = !! "src/main/*.fsproj"
     
     Log "Build-Main-Projects: " projectFiles
 
@@ -74,9 +66,9 @@ Target "Build-Main" (fun () ->
 Target "Build-Data" (fun () ->
     
     RestorePackages()
-    CopyDir dependenciesDir "./packages/" (fun _ -> true)
+    CopyDir dependenciesDir "../../packages/" (fun _ -> true)
 
-    CreateFSharpAssemblyInfo "src/data/FunScript.Data/AssemblyInfo.fs" 
+    CreateFSharpAssemblyInfo "src/extra/FunScript.Data/AssemblyInfo.fs" 
         [
             yield Attribute.Title "TypeInferred.FunScript.Data"
             yield Attribute.Description "FSharp.Data Interop Library - FunScript"
@@ -84,7 +76,7 @@ Target "Build-Data" (fun () ->
             yield! baseAttributes
         ]
         
-    let projectFiles = !! "src/data/**/*.fsproj"
+    let projectFiles = !! "src/extra/FunScript.Data/*.fsproj"
     
     Log "Build-Data-Projects: " projectFiles
 
@@ -95,7 +87,7 @@ Target "Build-Data" (fun () ->
 Target "Build-Rx" (fun () ->
     
     RestorePackages()
-    CopyDir dependenciesDir "./packages/" (fun _ -> true)
+    CopyDir dependenciesDir "../../packages/" (fun _ -> true)
 
     CreateFSharpAssemblyInfo "src/extra/FunScript.Rx/AssemblyInfo.fs" 
         [
