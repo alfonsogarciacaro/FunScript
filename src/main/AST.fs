@@ -43,7 +43,7 @@ and JSExpr =
          | Var var ->
             if var.Name = "this" then "this" else Map.find var scope
          | Type t ->
-            if t.IsGenericParameter then sprintf "$%s" t.Name
+            if t.IsGenericParameter then sprintf "$%s" t.Name // findGenericVarName scope t
             elif t.IsInterface then sprintf "'%s'" (mapType t)
             else sprintf "ns['%s']" (mapType t)
 
@@ -82,7 +82,7 @@ and JSExpr =
             vars |> List.fold (fun (scope, names) var ->
                let scope, name = mapVar scope var
                scope, name::names) (scope, [])
-         sprintf "(function(%s)%s{%s})" (String.concat ", " names) sp
+         sprintf "(function(%s)%s{%s})" (String.concat ", " (List.rev names)) sp  // Names got reversed while folding
             (match block with Empty -> "" | _-> newL' + (block.Print (pad + 1) newScope) + newL)
 
       | UnaryOp(symbol, expr) ->
@@ -141,7 +141,11 @@ and JSStatement =
       | Sequential (first, second) ->
          match first with
          | Empty -> second.Print pad scope
-         | _ -> sprintf "%s;%s%s" (first.Print pad scope) newL (second.Print pad scope)
+         | AssignGlobal _ -> sprintf "%s%s" (first.Print pad scope) (second.Print pad scope)
+         | _ ->
+            match second with
+            | Empty -> first.Print pad scope
+            | _ -> sprintf "%s;%s%s" (first.Print pad scope) newL (second.Print pad scope)
       
       | TryCatch(tryExpr, var, catchExpr) ->
          let newScope, name = mapVar scope var
@@ -217,11 +221,12 @@ let refType t =
    elif t = typeof<string> || t = typeof<char> then String("string")
    elif t.IsPrimitive then String("number")
    elif t = typeof<obj> then String("object")
+   elif t.IsArray || t.Name.StartsWith("Tuple") then String("Array") // TODO TODO TODO
    else
       // Generic types shouldn't get to this point, but make the check just in case
       // (Note: it's possible that generic types arguments of other types reach here, like List<IEnumerable<int>>)
       let t = if t.IsGenericType then t.GetGenericTypeDefinition() else t
-      let cis = t.GetConstructors()
+      let cis = t.GetConstructors(BindingFlags.All)
       if cis.Length > 0 then
          match cis.[0].TryGetAttribute<JSEmitInlineAttribute>() with
          | Some att -> EmitExpr(att.Emit, [])

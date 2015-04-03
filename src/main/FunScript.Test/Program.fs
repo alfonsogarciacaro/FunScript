@@ -1,28 +1,32 @@
 ﻿// Scratchpad for quick testing of new FunScript features and easier debugging
-
 open FunScript
 open System.Reflection
 open Microsoft.FSharp.Quotations
+open Microsoft.FSharp.Quotations.Patterns
 
 // TODO TODO TODO: Check JSEmit(Inline) expressions: args, paramarray...
 [<ReflectedDefinition>]
 module Test =
-   type A(a, b) =
-      member val B = a - b
-      static member C = 2 //with [<JSEmit("return 2")>] get() = 2
-      static member C2() = 3
-      member x.D a b c = a - b - c
+   type R = {a: string; b: int}
 
-   module Test2 =
-      type B =
-         static member C() = 2
+   type I =
+      abstract member Value: int
    
+   type A() =
+      interface I with
+         member val Value = 6
+
+   type B() =
+      interface I with
+         member val Value = 4
+
+   let getValue (v: I) = v.Value
+
+   let create<'T when 'T: (new: unit -> 'T)>() = new 'T()
+
    let main() =
-//      typeof<_ option>.GetMethods() |> Seq.iter (fun x -> printfn "%O" x)
-      let xs = seq { for i=10 downto 0 do yield i }
-      Seq.sum xs
-//      A(1,2).B + (Test2.B.C())
-//      Map.empty
+      let m = Map.empty.Add("hola", 55)
+      m.["hola"]
 
 [<EntryPoint; System.STAThread>]
 let main argv =

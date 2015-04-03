@@ -6,9 +6,24 @@ open System.Reflection
 open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Reflection
 
-let rec private foldi i state f source  =
-   if i = (Array.length source) then state
-   else foldi (i+1) (f i state source.[i]) f source
+let private foldBack state f source =
+   let rec foldBacki i state f source =
+      if i < 0 then state
+      else foldBacki (i-1) (f i state <| Array.get source i) f source
+   foldBacki (Array.length source - 1) state f source
+
+let private genConstructor (t: System.Type) (pis: PropertyInfo[]) =
+   if pis.Length = 0
+   then AssignGlobal(refType t, Lambda([], Empty))
+   else 
+      let this = Var("this", typeof<obj>)
+      let vars = pis |> Array.mapi (fun i _ -> Var(sprintf "a%i" i, typeof<obj>))
+      let assign i = Assign(DebugInfo.Empty,
+                        PropertyGet(refVar this, String pis.[i].Name),
+                        refVar vars.[i])
+      pis
+      |> foldBack Empty (fun i state _ -> Sequential(assign i, state))
+      |> fun assignments -> AssignGlobal(refType t, Lambda(List.ofArray vars, assignments))
 
 let compileUciConstructor (uci: UnionCaseInfo) =
    let this, pis, di = Var("_this", typeof<obj>), uci.GetFields(), DebugInfo.Empty
@@ -23,7 +38,7 @@ let compileUciConstructor (uci: UnionCaseInfo) =
          let vars = pis |> Array.mapi (fun i _ -> Var(sprintf "a%i" i, typeof<obj>))
          let assign i = Assign(di, PropertyGet(refVar this, String pis.[i].Name), refVar vars.[i])
          pis
-         |> foldi 0 (Return(di, refVar this)) (fun i state _ -> Sequential(assign i, state))
+         |> foldBack (Return(di, refVar this)) (fun i state _ -> Sequential(assign i, state))
          |> fun assignments ->
             Lambda(List.ofArray vars,
                Let(di, this, New(refType uci.DeclaringType, []),
@@ -42,8 +57,8 @@ let private compileObjectConstructor (com: Compiler) (ci: ConstructorInfo) =
             | DerivedPatterns.Lambdas(vars, body) ->
                let vars = vars |> List.concat |> List.filter (fun v -> v.Type <> typeof<unit>)
                Applications.getMethGenArgDefinitions ci              // Receive also generic arguments
-               |> List.map (fun a -> Var("$" + a.Name, typeof<obj>))
-               |> List.append <| List.rev vars                       // DerivedPatterns.Lambdas reverses the var list
+               |> List.map (fun a -> Var("$" + a.Name, a))
+               |> List.append vars
                |> fun vars -> Lambda(vars, com.CompileStatement Inplace body)
             | _ ->
                failwithf "Please report: DerivedPatterns.Lambdas doesn't match %s constructor"
@@ -52,32 +67,26 @@ let private compileObjectConstructor (com: Compiler) (ci: ConstructorInfo) =
             failwithf "Type %s is not tagged with JS attribute" ci.DeclaringType.Name
    AssignGlobal(refType ci.DeclaringType, jse)
 
-let private genConstructor (t: System.Type) (pis: PropertyInfo[]) =
-   if pis.Length = 0
-   then AssignGlobal(refType t, Lambda([], Empty))
-   else 
-      let this = Var("this", typeof<obj>)
-      let vars = pis |> Array.mapi (fun i _ -> Var(sprintf "a%i" i, typeof<obj>))
-      let assign i = Assign(DebugInfo.Empty,
-                        PropertyGet(refVar this, String pis.[i].Name),
-                        refVar vars.[i])
-      pis
-      |> foldi 1 (assign 0) (fun i state _ -> Sequential(state, assign i))
-      |> fun assignments -> AssignGlobal(refType t, Lambda(List.ofArray vars, assignments))
-
 let compileConstructor com t =
    let cons =
-      if   FSharpType.IsUnion  t then AssignGlobal(refType t, Lambda([], Empty))
-      elif FSharpType.IsRecord t then genConstructor t (FSharpType.GetRecordFields t)
-      elif FSharpType.IsExceptionRepresentation t then genConstructor t (FSharpType.GetExceptionFields t)
+      if   FSharpType.IsUnion(t, true) then AssignGlobal(refType t, Lambda([], Empty))
+      elif FSharpType.IsRecord(t, true) then genConstructor t (FSharpType.GetRecordFields(t, true))
+      elif FSharpType.IsExceptionRepresentation(t, true) then genConstructor t (FSharpType.GetExceptionFields(t, true))
       else
-         match t.GetConstructors() with
-         | [||] -> AssignGlobal(refType t, Object []) // Static types, modules
+         match t.GetConstructors(BindingFlags.All) with
+         | [||] -> AssignGlobal(refType t, Object []) // Static types / Modules
          | cis -> compileObjectConstructor com cis.[0]
-   // Static fields
-   t.GetFields(BindingFlags.Static ||| BindingFlags.Public ||| BindingFlags.NonPublic)
-   |> Array.fold (fun (cons: JSStatement) fi ->
-      Sequential(cons, AssignGlobal(refType t, String fi.Name))) cons
+   
+   // Static properties in modules. TODO: Use BindingFlags.All? Properties should all be public here.
+   if FSharpType.IsModule t
+   then t.GetProperties() |> Array.fold (fun (cons: JSStatement) pi ->
+      match Expr.TryGetReflectedDefinition pi.GetMethod with
+      | Some piExpr ->
+         Sequential(cons,
+            AssignGlobal(PropertyGet(refType t, String pi.Name),
+               com.CompileExpr piExpr))
+      | None -> cons (* failwithf "No reflected definition for %s.%s" t.Name pi.Name *)) cons
+   else cons
 
 let private constructInstance com ret = function
    // TODO: Use 'undefined' instead of 'null' for None? It'd make more sense for optional parameters.
@@ -94,27 +103,32 @@ let private constructInstance com ret = function
       let t = Applications.getGenTypeDef t
       buildExpr <| New(refType t, List.map com.CompileExpr args)
 
+   // Creating instances of generic types with parameterless constructors (e.g. new T'())
+   | Patterns.Call(None, mi, []) when mi.Name = "CreateInstance" && mi.IsGenericMethod ->
+      let t = mi.GetGenericArguments().[0]
+      buildExpr <| New(refType t, [])
+
    | PatternsExt.NewObject (ci, args) ->
-      let ci = Applications.getGenMethodDef ci :?> ConstructorInfo
+      let genCi = Applications.getGenMethodDef ci :?> ConstructorInfo
       let args = List.map com.CompileExpr args
       match ret with
       | Inplace ->
          buildStatement <|
             // Ignore primary constructors calling obj or System.Exception as base
-            if ci.DeclaringType = typeof<obj> || ci.DeclaringType = typeof<System.Exception>
+            if genCi.DeclaringType = typeof<obj> || genCi.DeclaringType = typeof<System.Exception>
             then Empty
             else Do(DebugInfo.Empty,
-                  Apply(PropertyGet(refType ci.DeclaringType, String "call"),
+                  Apply(PropertyGet(refType genCi.DeclaringType, String "call"),
                         EmitExpr("this",[])::args))
       | _ ->
          buildExpr <|
             let genArgs = Applications.getMethGenArgs ci |> List.map refType
-            if ci = ci.DeclaringType.GetConstructors().[0] then            // Primary constructor
-               match ci.TryGetAttribute<JSEmitInlineAttribute>() with
+            if genCi = genCi.DeclaringType.GetConstructors(BindingFlags.All).[0] then            // Primary constructor
+               match genCi.TryGetAttribute<JSEmitInlineAttribute>() with
                | Some att -> New(EmitExpr(att.Emit, []), args)
-               | None -> New(refType ci.DeclaringType, args@genArgs)
+               | None -> New(refType genCi.DeclaringType, args@genArgs)
             else
-               Apply(refMethodCall(ci, None), args@genArgs)
+               Apply(refMethodCall(genCi, None), args@genArgs)
    | _ -> None
 
 let components: CompilerComponent list = [

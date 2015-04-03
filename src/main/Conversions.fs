@@ -43,6 +43,12 @@ let private coerce com _ = function
    | SpecificCall <@ ignore @>   (_,_,[x]) -> buildExpr <| com.CompileExpr x
    | SpecificCall <@ box @>   (_,_,[x]) -> buildExpr <| com.CompileExpr x
    | SpecificCall <@ unbox @>   (_,_,[x]) -> buildExpr <| com.CompileExpr x
+
+   | Patterns.Call(None, mi, [x]) ->
+      if mi.Name = "UnboxGeneric" || mi.Name = "UnboxFast"
+      then buildExpr <| com.CompileExpr x
+      else None
+
    | _ -> None
 
 let private conversion (com: Compiler) _ = function

@@ -5,7 +5,10 @@ namespace FunScript.Core
 [<Sealed; CompiledName("FSString")>]
 type String =
    static member Empty: string
+   static member IsNullOrEmpty: string -> bool
+   static member Join: string * string[] -> string
    static member Format: s: string * [<System.ParamArray>] args: obj[] -> string
+   static member internal PrintFormatToString: string -> obj
 
 /// <summary>Functional programming operators for string processing.  Further string operations
 /// are available via the member functions on strings and other functionality in

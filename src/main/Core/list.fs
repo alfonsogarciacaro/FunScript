@@ -14,12 +14,10 @@ module List =
    let toSeq (source:'T list):seq<'T> =
       Seq.ofList source
 
-   [<CompiledName("get_Head")>]
    let head = function
       | [] -> failwith "List was empty"
       | x::xs -> x
 
-   [<CompiledName("get_Tail")>]
    let tail = function
       | [] -> failwith "List was empty"
       | x::xs -> xs
@@ -78,7 +76,6 @@ module List =
       scan (fun acc x -> f x acc) seed (rev xs)
       |> rev
 
-   [<CompiledName("get_Length")>]
    let length xs = 
       fold (fun acc _ -> acc + 1) 0 xs
 
@@ -135,7 +132,6 @@ module List =
 
    let empty<'a> : 'a list = []
 
-   [<CompiledName("get_IsEmpty")>]
    let isEmpty = function
       | [] -> true
       | _ -> false
@@ -181,7 +177,6 @@ module List =
       | None -> invalidOp "List did not contain any matching elements"
       | Some x -> x
 
-   [<CompiledName("get_Item")>]
    let nth xs n =
       findIndexed (fun i _ -> n = i) xs
       
@@ -295,3 +290,11 @@ module List =
       let ys = xs |> toArray
       Array.sortInPlaceBy f ys
       ys |> ofArray
+
+[<JS; Sealed>]
+type internal FSList =
+   member li.Head with [<JSEmitInline("{0}.Head")>] get() = failwith "never"
+   member li.Tail with [<JSEmitInline("{0}.Tail")>] get() = failwith "never"
+   member li.Length = List.length (unbox li)
+   member li.Item = List.nth (unbox li)
+   member li.IsEmpty = List.isEmpty (unbox li)

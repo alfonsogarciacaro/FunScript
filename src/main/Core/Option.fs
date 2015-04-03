@@ -4,10 +4,10 @@ open FunScript
 // TODO TODO TODO: Nullable primitives
 
 [<JS; Sealed; CompiledName("FSOption")>]
-type Option private() =
-   member __.IsSome with [<JSEmitInline("({0}!==null)")>] get() = failwith "never"
-   member __.IsNone with [<JSEmitInline("({0}===null)")>] get() = failwith "never"
-   member __.Value with [<JSEmitInline("{0}")>] get() = failwith "never"
+type internal Option =
+   static member IsSome with [<JSEmitInline("({0}!==null)")>] get(o: _ option) = failwith "never"
+   static member IsNone with [<JSEmitInline("({0}===null)")>] get(o: _ option) = failwith "never"
+   static member Value with [<JSEmitInline("{0}")>] get(o: _ option) = failwith "never"
 
 [<JS>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]

@@ -21,11 +21,12 @@ let ref x = { contents = x }
 let (!) (r:_ Ref) = r.contents
 let (:=) (r: _ Ref) v = r.contents <- v
 
-let (|>) x f = f x
+//let (|>) x f = f x
+//let (<|) f x = f x
+
 let (||>) (x, y) f = f x y
 let (|||>) (x, y, z) f = f x y z
 
-let (<|) f x = f x
 let (<||) f (x, y) = f x y
 let (<|||) f (x, y, z) = f x y z
 
@@ -39,9 +40,9 @@ let defaultArg x y =
 let incr (x:int ref): unit = x := !x + 1
 let decr (x:int ref): unit = x := !x - 1
 
-
-let exn(msg: string) = FunScript.Core.Exception(msg)
+let exn(msg: string) = Core.Exception(msg)
 // TODO TODO TODO: raise, failwith, invalidOp, invalidArg
+// -> Use replacements in components instead?
 
 // Don't emit just "{0}" as this will probably be pased as lambda function
 let id x = x

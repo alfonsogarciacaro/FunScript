@@ -4,18 +4,19 @@ open AST
 open InternalCompiler
 open System.Reflection
 open Microsoft.FSharp.Quotations
+open Microsoft.FSharp.Quotations.Patterns
 
 // TODO TODO TODO
-//let (|>) x f = f x
+// Change TypeMappings: List
 // Invoke method of delegates
 
 let typeMappings =
    let assembly = Assembly.GetAssembly(typeof<Compiler>)
    Map [
       typeof<string>.Name, typeof<Core.String>
-      "OptionModule", assembly.GetType("FunScript.Core.OptionModule")
+      "OptionModule", assembly.GetType("FunScript.Core.OptionModule")  // Some intrinsic functions use this module where it can't be hidden
       typeof<obj option>.Name, assembly.GetType("FunScript.Core.FSOption")
-      typeof<obj list>.Name, assembly.GetType("FunScript.Core.Collections.ListModule")
+      typeof<obj list>.Name, assembly.GetType("FunScript.Core.Collections.FSList")
    ]
 
 let getGenTypeDef (t: System.Type) =
@@ -25,11 +26,11 @@ let getGenMethodDef (meth: MethodBase) =
    let getGenericMethod' (t: System.Type) (meth: MethodBase): MethodBase =
       match meth with
       | :? ConstructorInfo as ci ->
-         t.GetConstructors(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
+         t.GetConstructors(BindingFlags.All)
          |> Array.pick (fun ci ->
             if ci.MetadataToken = meth.MetadataToken then Some (upcast ci) else None)
       | _ ->
-         t.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static ||| BindingFlags.Instance)
+         t.GetMethods(BindingFlags.All)
          |> Array.find (fun mi -> mi.MetadataToken = meth.MetadataToken)
          |> function
             | mi when mi.IsGenericMethod -> upcast(mi.GetGenericMethodDefinition())
@@ -66,25 +67,58 @@ let compileMethod (com: Compiler, meth: MethodBase, infcMeth: MethodInfo option)
       | None ->
          match Expr.TryGetReflectedDefinition meth with
          | Some e ->
+            let genArgs =                                // Receive also generic arguments
+               getMethGenArgDefinitions meth
+               |> List.map (fun a -> Var("$" + a.Name, a))
             match e with 
             | DerivedPatterns.Lambdas(vars, body) ->
-               let vars =
-                  let vars = vars |> List.concat |> List.filter (fun v -> v.Type <> typeof<unit>)
-                  getMethGenArgDefinitions meth                         // Receive also generic arguments
-                  |> List.map (fun a -> Var("$" + a.Name, typeof<obj>))
-                  |> List.append <| (List.rev vars)                     // DerivedPatterns.Lambdas reverses the var list
-               Lambda(vars, com.CompileStatement ReturnFrom body)
-            | Patterns.PropertyGet(None, pi, args) as expr ->
-               Lambda([], com.CompileStatement ReturnFrom <| Expr.Call(pi.GetMethod, args).With(expr.DebugInfo))
+               vars
+               |> List.concat
+               |> List.filter (fun v -> v.Type <> typeof<unit>)
+               |> fun vars -> Lambda(vars@genArgs, com.CompileStatement ReturnFrom body)
             | _ ->
-               failwithf "Please report: DerivedPatterns.Lambdas doesn't match method %s of %s"
-                         meth.Name meth.DeclaringType.Name
+               Lambda(genArgs, com.CompileStatement ReturnFrom e)
          | None ->
             failwithf "Cannot compile method %s of %s. %s"
                       meth.Name meth.DeclaringType.FullName
                       "Either JS attribute is missing or the method is not supported by FunScript."
    let methRef = match infcMeth with None -> meth | Some meth -> upcast meth
    AssignGlobal(refMethodDef(methRef, meth.DeclaringType), jse)
+
+let private pipes (com: Compiler) _ expr =
+   let rec call c target (mi: MethodInfo) (args: Expr list) =
+      match c with
+      | DerivedPatterns.SpecificCall <@ (|>) @> (_,_,[_;f]) ->
+         compress args.Head f
+      | DerivedPatterns.SpecificCall <@ (<|) @> (_,_,[f;_]) ->
+         compress args.Head f
+      | _ ->
+         match target with 
+         | Some target -> Expr.Call(target,mi,args)
+         | None -> Expr.Call(mi,args)
+   and compress x f =
+      match x with
+      | DerivedPatterns.SpecificCall <@ (|>) @> (_,_,[x';f']) ->
+         compress (compress x' f') f
+      | DerivedPatterns.SpecificCall <@ (<|) @> (_,_,[f';x']) ->
+         compress (compress x' f') f
+      | _ ->
+         match f with
+         | Lambda(var1, (Call(target, mi, _) as c)) ->
+            call c target mi [x]
+         | Let(var1, val1, Lambda(var2, (Call(target, mi, _) as c))) ->
+            call c target mi [val1; x]
+         | Let(var1, val1, Let(var2, val2, Lambda(var3, (Call(target, mi, _) as c)))) ->
+            call c target mi [val1; val2; x]
+         | Let(var1, val1, Let(var2, val2, Let(var3, val3, Lambda(var4, (Call(target, mi, _) as c))))) ->
+            call c target mi [val1; val2; val3; x]
+         | _ -> Expr.Application(f, x)
+   match expr with
+   | DerivedPatterns.SpecificCall <@ (|>) @> (_,_,[x;f]) ->
+         buildExpr <| com.CompileExpr(compress x f)
+   | DerivedPatterns.SpecificCall <@ (<|) @> (_,_,[f;x]) ->
+         buildExpr <| com.CompileExpr(compress x f)
+   | _ -> None
 
 let private fnDefinition com _ = function
    | Patterns.Lambda(var, CompileStatement com ReturnFrom body) ->
@@ -115,12 +149,14 @@ let private application (com: Compiler) _ = function
 
 let private replaceMethod (m1: MethodBase) (t: System.Type): MethodBase =
    let m1Params = m1.GetParameters()
-   t.GetMethods(BindingFlags.Static ||| BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic)
+   let meths = t.GetMethods(BindingFlags.All)
+   meths
    |> Array.tryFind (fun m2 -> 
       let m2Params = m2.GetParameters()
       m1.Name = m2.Name && m1Params.Length = m2Params.Length &&
-         m1Params |> Array.zip m1Params |> Array.fold (fun (b: bool) (p1, p2) ->
-                                                b && p1.Name = p2.Name) true)
+         m1Params |> Array.zip m1Params
+                  |> Array.fold (fun (b: bool) (p1, p2) ->
+                     b && p1.ParameterType.Name = p2.ParameterType.Name) true)
    |> function
       | Some replacement -> upcast replacement
       | None -> failwithf "Couldn't find replacement for method %s of %s" m1.Name m1.DeclaringType.FullName
@@ -155,6 +191,7 @@ let private methodCalling (com: Compiler) _ = function
    | _ -> None
 
 let components: CompilerComponent list = [ 
+   pipes
    fnDefinition
    application
    methodCalling

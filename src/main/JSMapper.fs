@@ -110,6 +110,14 @@ let mapVar scope var =
       scope |> Map.exists (fun _ x' -> x = x'))
    |> fun name -> scope.Add(var, name), name
 
+let findGenericVarName (scope: Map<Var, string>) (typ: System.Type) =
+   scope
+   |> Map.tryPick (fun k v ->
+      if k.Type.MetadataToken = typ.MetadataToken then Some v else None)
+   |> function
+      | Some name -> name
+      | None -> failwithf "Couldn't find generic var for type %s" typ.Name
+
 let mapType (typ: System.Type) =
    if cache.ContainsKey typ then fst cache.[typ]
    else

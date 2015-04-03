@@ -6,6 +6,30 @@ type String =
    [<JSEmitInline("''")>]
    static member Empty: string = ""
 
+   [<JSEmitInline("({0}==null)||({0}=='')")>]
+   static member IsNullOrEmpty(s:string): bool = failwith "never"
+
+   [<JSEmitInline("{1}.join({0})")>]
+   static member Join(separator:string, s:string[]): string = failwith "never"
+
+   [<JSEmit("""var reg = /%[+\-* ]?\d*(?:\.(\d+))?(\w)/;
+   function formatToString(pattern) {
+    return function(rep) {
+       var formatted = pattern.replace(reg, function(match, precision, format) {
+       switch (format) {
+       case "f": case "F": return precision ? rep.toFixed(precision) : rep.toFixed(6);
+       case "g": case "G": return rep.toPrecision(precision);
+       case "e": case "E": return rep.toExponential(precision);
+       case "A": return JSON.stringify(rep);
+       default:  return rep;
+       }
+       });
+       return reg.test(formatted) ? formatToString(formatted) : formatted;
+    };
+   }
+   return formatToString({0})""")>]
+   static member internal PrintFormatToString(s: string): obj = failwith "never"
+
    [<JSEmit("""return {0}.replace(/\{(\d+)(,-?\d+)?(?:\:(.+?))?\}/g, function(match, number, alignment, format) {
    var rep = match;
    if ({1}[number] !== undefined) {
@@ -49,96 +73,77 @@ type String =
    })""")>]
    static member Format(s: string, [<System.ParamArray>] args: obj[]): string = failwith "never"
 
+   member __.Length with [<JSEmitInline("{0}.length")>] get(): int = failwith "never"
+
+   member __.Item with [<JSEmitInline("{0}.charAt({1})")>] get(i:int): char = failwith "never"
+
    [<JSEmitInline("{0}.indexOf({1})")>]
-   static member IndexOf(s:string, search: string): int = failwith "never"      
+   member __.IndexOf(search: string): int = failwith "never"      
 
    [<JSEmitInline("{0}.indexOf({1}, {2})")>]
-   static member IndexOf(s:string, search:string, offset:int): int = failwith "never"
+   member __.IndexOf(search:string, offset:int): int = failwith "never"
 
    [<JSEmitInline("({0}.indexOf({1})>=0))")>]
-   static member Contains(s:string): int = failwith "never"
+   member __.Contains(s:string): int = failwith "never"
 
    [<JSEmitInline("{0}.lastIndexOf({1})")>]
-   static member LastIndexOf(s: string, search: string): int = failwith "never"
+   member __.LastIndexOf(search: string): int = failwith "never"
 
    [<JSEmitInline("{0}.lastIndexOf({1}, {2})")>]
-   static member LastIndexOf(s: string, search: string, offset:int): int = failwith "never"
+   member __.LastIndexOf(search: string, offset:int): int = failwith "never"
 
    [<JSEmitInline("{0}.trim()")>]
-   static member Trim(s: string): string = failwith "never"
+   member __.Trim(): string = failwith "never"
 
-   static member StartsWith(s, search) =
-       String.IndexOf(s, search) = 0
+   [<JSEmitInline("({0}.indexOf({1})===0)")>]
+   member __.StartsWith(s, search) = failwith "never"
 
-   static member EndsWith(s: string, search: string) =
-       let offset = s.Length - search.Length
-       let index = String.IndexOf(s, search, offset)
-       index <> -1 && index = offset
+   member __.EndsWith(search: string) =
+      let s: string = unbox __
+      let offset = s.Length - search.Length
+      let index = s.IndexOf(search, offset)
+      index <> -1 && index = offset
 
    [<JSEmitInline("{0}.toLowerCase()")>]
-   static member ToLower(s:string): string = failwith "never"
+   member __.ToLower(s:string): string = failwith "never"
 
    [<JSEmitInline("{0}.toUpperCase()")>]
-   static member ToUpper(s:string): string = failwith "never"
-
-   [<JSEmitInline("({0}==null)||({0}=='')")>]
-   static member IsNullOrEmpty(s:string): bool = failwith "never"
-
-   [<JSEmitInline("{0}.length")>]
-   static member Length(s:string): int = failwith "never"
-
-   [<JSEmitInline("{0}.charAt({1})")>]
-   static member Item(s:string, length:int): char = failwith "never"
+   member __.ToUpper(s:string): string = failwith "never"
 
    [<JSEmitInline("{0}.substr({1},{2})")>]
-   static member Substring(s:string, offset:int, length:int): string = failwith "never"
+   member __.Substring(offset:int, length:int): string = failwith "never"
 
    [<JSEmitInline("{0}.substr({1})")>]
-   static member Substring(s:string, offset:int): string = failwith "never"
+   member __.Substring(offset:int): string = failwith "never"
 
-   [<JSEmit("return {0}.split(new RegExp({1}.map({0}).join('|')))")>]
-   static member SplitImpl(s:string, delimiter:string[], regexEscape: string->string): string[] = failwith "never"
+   [<JSEmit("return {0}.split(new RegExp({1}.map({2}).join('|')))")>]
+   static member SplitImpl(s: string, delimiter:string[], regexEscape: string->string): string[] = failwith "never"
 
-   static member Split(s:string, delimiters:string[]): string[] =
-      String.SplitImpl(s, delimiters, FSUtil.escapeRegex)
+   // TODO TODO TODO: Implement Split with count
+   member __.Split(delimiters: char[]): string[] =
+      String.SplitImpl(unbox __, unbox delimiters, FSUtil.escapeRegex)
+
+   member __.Split(delimiters: string[]): string[] =
+      String.SplitImpl(unbox __, delimiters, FSUtil.escapeRegex)
   
-   static member Split(s, delimiters: string[], opts) =
-      String.SplitImpl(s, delimiters, FSUtil.escapeRegex)
-      |> Array.filter (fun inp ->
+   member __.Split(delimiters: string[], opts) =
+      String.SplitImpl(unbox __, delimiters, FSUtil.escapeRegex)
+      |> Collections.Array.filter (fun inp ->
          match opts with
          | System.StringSplitOptions.RemoveEmptyEntries -> inp <> ""
          | _ -> true)
 
-   [<JSEmitInline("{1}.join({0})")>]
-   static member Join(separator:string, s:string[]): string = failwith "never"
-
-   [<JSEmitInline("{1}.replace({0})")>]
-   static member Replace(s:string, search:string, replace:string): string = failwith "never"
+   [<JSEmitInline("{0}.replace({1}, {2})")>]
+   member __.Replace(search:string, replace:string): string = failwith "never"
 
    [<JSEmitInline("{0}")>]
-   static member ToCharArray(str:string): char[] = failwith "never"
+   member __.ToCharArray(str:string): char[] = failwith "never"
 
 
 // Re-implementation of functions from Microsoft.FSharp.Core.StringModule
 [<JS; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module String =
-   [<JSEmit("""var reg = /%[+\-* ]?\d*(?:\.(\d+))?(\w)/;
-       function formatToString(rep) {
-           {0} = {0}.replace(reg, function(match, precision, format) {
-               switch (format) {
-                   case "f": case "F": return precision ? rep.toFixed(precision) : rep.toFixed(6);
-                   case "g": case "G": return rep.toPrecision(precision);
-                   case "e": case "E": return rep.toExponential(precision);
-                   case "A": return JSON.stringify(rep);
-                   default:  return rep;
-               }
-           });
-           return reg.test({0}) ? formatToString : {0};
-       }
-       return formatToString""")>]
-   let PrintFormatToString(s: string): obj = failwith "never"
-
-   [<JSEmit("return {0}==null?\"\":{0};")>]
+   [<JSEmitInline("({0}===null?'':{0})")>]
    let private emptyIfNull (str:string) : string = failwith "never"
 
    [<JSEmitInline("{1}.join({0})")>]

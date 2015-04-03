@@ -103,9 +103,24 @@ let private seqs com _ = function
       buildExpr <| com.CompileCall <@ Core.Collections.Range.customStep @> args
    | _ -> None
 
+// TODO TODO TODO: raise, failwith, invalidOp, invalidArg
+let private errors com _ expr =
+   match expr with
+   | SpecificCall <@ raise @> (_,_,[CompileExpr com jse])
+   | SpecificCall <@ failwith @> (_,_,[CompileExpr com jse]) ->
+      buildStatement <| Throw(expr.DebugInfo, jse)
+   | _ -> None
+
+let private printFormatToString (com: Compiler) _ = function
+   | Call(_, mi, [Coerce(NewObject(_,args),_)]) when mi.Name = "PrintFormatToString" ->
+      buildExpr <| com.CompileCall <@ Core.String.PrintFormatToString @> args
+   | _ -> None
+
 let components: CompilerComponent list = [ 
    primitiveValues
    primitiveOps
    arrayCreation
    seqs
+   errors
+   printFormatToString
 ]

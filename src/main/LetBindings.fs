@@ -5,16 +5,15 @@ open InternalCompiler
 open Microsoft.FSharp.Quotations
 
 let private bindings (com: Compiler) ret = function
-   | Patterns.Let(var, CompileExpr com assignment, CompileStatement com ret body) as e ->
-      Let(e.DebugInfo, var, assignment, body)
-      |> buildStatement
-
    | Patterns.LetRecursive(bindingExprs, CompileStatement com ret body) ->
       bindingExprs
       |> List.fold (fun (acc: JSStatement) (var, assignment) ->
          let compiledAssignment = com.CompileExpr assignment
          // TODO: Check if the source mapping works properly in this case
          Let(assignment.DebugInfo, var, compiledAssignment, acc)) body
+      |> buildStatement
+   | Patterns.Let(var, CompileExpr com assignment, CompileStatement com ret body) as e ->
+      Let(e.DebugInfo, var, assignment, body)
       |> buildStatement
    | _ -> None
 

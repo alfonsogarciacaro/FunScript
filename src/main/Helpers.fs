@@ -6,6 +6,13 @@ open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Reflection
 
 [<AutoOpen>]
+module RefExt =
+   type BindingFlags with
+      static member All
+         with get() = BindingFlags.Public   ||| BindingFlags.NonPublic |||
+                      BindingFlags.Instance ||| BindingFlags.Static
+
+[<AutoOpen>]
 module internal AttExt =
    let private findAttribute<'attr> =
       Array.tryPick (fun (obj:obj) -> 
@@ -30,14 +37,14 @@ module internal PatternsExt =
 
    let (|NewObject|_|) = function
       | Patterns.NewObject(ctor, args) ->
-         if FSharpType.IsRecord(ctor.DeclaringType, BindingFlags.Public ||| BindingFlags.NonPublic) then None
+         if FSharpType.IsRecord(ctor.DeclaringType, BindingFlags.All) then None
          else Some(ctor, args)
       | _ -> None
    
    let (|NewRecord|_|) = function
       | Patterns.NewRecord(typ, args) -> Some(typ, args)
       | Patterns.NewObject(ctor, args) ->
-         if FSharpType.IsRecord(ctor.DeclaringType, BindingFlags.Public ||| BindingFlags.NonPublic) then 
+         if FSharpType.IsRecord(ctor.DeclaringType, BindingFlags.All) then 
            Some(ctor.DeclaringType, args)
          else None
       | _ -> None
@@ -64,9 +71,8 @@ module internal ExprExt =
          | Some di -> di
          | None -> { file=""; line=0; col=0 } // TODO: Throw exception instead?
 
-   let private flags = BindingFlags.NonPublic ||| BindingFlags.Instance
    let private setDebugInfo (e: Expr) (dinfo: DebugInfo) =
-      typeof<Expr>.GetField("attribs", flags).SetValue(e,
+      typeof<Expr>.GetField("attribs", BindingFlags.All).SetValue(e,
          [Expr.NewTuple [Expr.Value("DebugRange")
                          Expr.NewTuple [Expr.Value dinfo.file
                                         Expr.Value dinfo.line
