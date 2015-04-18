@@ -71,7 +71,7 @@ let ``Catching any exception works``() =
       <@@ 
          let f x =
             try
-                if x then  raise (exn())
+                if x then raise (exn "FAIL")
                 else 1.0
             with _ -> 99.0
          f true + f false

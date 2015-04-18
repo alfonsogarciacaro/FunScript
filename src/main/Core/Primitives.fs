@@ -2,14 +2,14 @@
 open FunScript
 
 [<JS>]
-type GenericComparer<'a when 'a: comparison>() =
-   interface System.Collections.Generic.IComparer<'a> with
-      member __.Compare(x, y) = compare x y
-
-[<JS>]
 type KeyValuePair<'Key, 'Value>(key, value) =
    member __.Key: 'Key = key
    member __.Value: 'Value = value
+
+[<JS>]
+type GenericComparer<'a when 'a: comparison>() =
+   interface System.Collections.Generic.IComparer<'a> with
+      member __.Compare(x, y) = compare x y
 
 [<JS>]
 type Lazy<'T>(value : 'T, factory: unit -> 'T) =
@@ -27,8 +27,8 @@ type Lazy<'T>(value : 'T, factory: unit -> 'T) =
             isCreated <- true
         value
 
-[<JS>]
-type Exception(message) =
+[<JS; CompiledName("FSException")>]
+type Exception(message: string) =
     member __.Message = message
 
 [<JS>]

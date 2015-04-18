@@ -1,4 +1,5 @@
-﻿namespace FunScript.Core
+﻿
+namespace FunScript.Core
 open FunScript
 
 [<JS; Sealed; CompiledName("FSString")>]
@@ -196,3 +197,12 @@ module String =
    let length (str:string) =
       let str = emptyIfNull str
       str.Length
+
+[<JS; Sealed; CompiledName("FSConsole")>]
+type Console =
+   [<JSEmitInline("console.log({0})")>]
+   static member Log(s: string): unit = failwith "never"
+
+   static member WriteLine(s: string, [<System.ParamArray>] args: obj[]): unit =
+      let s = String.Format(s, args)
+      Console.Log(s)

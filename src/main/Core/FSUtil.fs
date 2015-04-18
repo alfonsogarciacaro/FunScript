@@ -7,3 +7,8 @@ open FunScript
 let escapeRegex(s: string): string = failwith "never"
 [<JSEmit(@"return {0}.replace(/\\([\-\[\/\{\}\(\)\*\+\?\.\\\^\$\|])/g, '$1')")>]
 let unescapeRegex(s: string): string = failwith "never"
+
+[<JSEmitInline("JSON.parse({0})")>]
+let parseJSON(s: string) = failwith "never"
+[<JSEmitInline("JSON.stringify({0})")>]
+let stringifyJSON(o: obj) = failwith "never"

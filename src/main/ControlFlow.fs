@@ -1,12 +1,11 @@
 ﻿module internal FunScript.ControlFlow
 
 open AST
-open InternalCompiler
 open Microsoft.FSharp.Quotations
 
 let private controlFlow com ret = function
    // TODO: Problems with closures with JS for loops? See old FunScript version 
-   | Patterns.ForIntegerRangeLoop(var, CompileExpr com beginning, CompileExpr com ending, CompileStatement com ret body) as e ->
+   | Patterns.ForIntegerRangeLoop(var, CompileExpr com beginning, CompileExpr com ending, CompileStatement com Inplace body) as e ->
       buildStatement <| ForLoop(e.DebugInfo, var, beginning, ending, body)
 
    | Patterns.WhileLoop(CompileExpr com cond, CompileStatement com ret body) as e ->

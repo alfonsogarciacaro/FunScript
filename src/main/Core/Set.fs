@@ -11,9 +11,8 @@
 
 // Root of the distribution is at: https://github.com/fsharp/fsharp
 // Modified Set implementation for FunScript
-namespace FunScript.Core.Collections
+namespace FunScript.Core
 open FunScript
-open FunScript.Core
 
 open System.Collections
 open System.Collections.Generic
@@ -648,11 +647,10 @@ module Set =
    let unionMany sets  = Set<_>.Union(sets)
 
    //[<CompiledName("Intersect")>]
-   let intersect (s1 : Set<'T>)  (s2 : Set<'T>)  = Set<'T>.Intersection(s1,s2)
+   let intersect (s1 : Set<_>)  (s2 : Set<_>)  = Set<_>.Intersection(s1,s2)
 
    //[<CompiledName("IntersectMany")>]
    let intersectMany sets  = Set<_>.IntersectionMany(sets)
-
 
    //[<CompiledName("Iterate")>]
    let iter f (s : Set<'T>)  = s.Iterate(f)

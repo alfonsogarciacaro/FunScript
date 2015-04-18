@@ -11,7 +11,7 @@
 
 // Root of the distribution is at: https://github.com/fsharp/fsharp
 // Modified Map implementation for FunScript
-namespace FunScript.Core.Collections
+namespace FunScript.Core
 open FunScript
 open FunScript.Core
 
@@ -29,7 +29,7 @@ type MapTree<'Key,'Value when 'Key : comparison > =
 
 [<JS>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
-module MapTree = 
+module internal MapTree = 
 
    let rec sizeAux acc m = 
       match m with  

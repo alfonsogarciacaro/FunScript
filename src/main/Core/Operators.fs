@@ -41,17 +41,32 @@ let incr (x:int ref): unit = x := !x + 1
 let decr (x:int ref): unit = x := !x - 1
 
 let exn(msg: string) = Core.Exception(msg)
-// TODO TODO TODO: raise, failwith, invalidOp, invalidArg
-// -> Use replacements in components instead?
 
-// Don't emit just "{0}" as this will probably be pased as lambda function
+// This will be replaced by a Throw statement (see PrimiveTypes.errors component)
+let raise(ex: Core.Exception) =
+   System.Exception(ex.Message) |> FSharp.Core.Operators.raise
+
+let failwith(msg: string) = raise(exn msg)
+
+// TODO: invalidOp, invalidArg
+
+// When `ignore` and `id` are passed as lambdas, they'll be captured by Applications.fnDefinition
+[<JSEmitInline("{0}"); CompiledName("FSIdentitiy")>]
 let id x = x
 
-[<JSEmitInline("{0}")>]
-let ignore x = FSharp.Core.Operators.ignore x
+// TODO: Use a component to turn it into undefined if return strategy is ReturnFrom?
+[<JSEmitInline("{0}"); CompiledName("FSIgnore")>]
+let ignore x = ()
 
+// `box` and `unbox` should never be passed as lambdas,
 [<JSEmitInline("{0}")>]
 let box x = FSharp.Core.Operators.box x
 
 [<JSEmitInline("{0}")>]
-let unbox x = FSharp.Core.Operators.unbox x
+let unbox<'T>(x: obj) = FSharp.Core.Operators.unbox<'T> x
+
+// Convenience JS functions
+[<JSEmitInline("require({0})")>]
+let require<'T>(path: string): 'T = failwith "never"
+
+// TODO: define, requireAMD

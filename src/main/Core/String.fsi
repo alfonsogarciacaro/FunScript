@@ -106,3 +106,7 @@ module String =
    //[<CompiledName(("Length")>]
    val length: str:string -> int
 
+
+[<Sealed; CompiledName("FSConsole")>]
+type Console =
+   static member WriteLine: s: string * [<System.ParamArray>] args: obj[] -> unit

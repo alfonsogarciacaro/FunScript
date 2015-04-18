@@ -1,27 +1,33 @@
 ﻿module internal FunScript.Conversions
 
 open AST
-open InternalCompiler
+open System.Reflection
 open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Quotations.DerivedPatterns
+open Microsoft.FSharp.Reflection
 
-let private emit (com: Compiler) pattern target =
+let private emit (com: ICompiler) pattern target =
    buildExpr <| EmitExpr(pattern, [com.CompileExpr target])
 
-let private typeTest (com: Compiler) _ = function
-   | Patterns.TypeTest(e, t) when t = typeof<System.IDisposable> -> buildExpr(Boolean false)
-   | Patterns.TypeTest(e, t) ->
-      if (t.IsInterface) then
-         PropertyGet(com.CompileExpr e, String "constructor")
-         |> fun cons -> PropertyGet(cons, refType t)
-         |> fun infc -> BinaryOp(infc, "!==", Undefined)
-         |> buildExpr
-      // TODO TODO TODO
-      // Primitives -> type is compiled as string: typeof o === <type>
+let private typeTest com _ = function
+   | Patterns.TypeTest(CompileExpr com jse, t) ->
       // Check if primary constructor has inline replacement (o instanceof attr.Emit)
       // Rest -> o instanceof <type/construcotr)
-      else         
-         failwith "Not implemented"
+      buildExpr <|
+         // For primitives, type reference is compiled as string
+         if t.IsPrimitive || t = typeof<string> || t.IsEnum || t = typeof<unit> ||
+            t.IsArray || (FSharpType.IsTuple t) ||
+            FSharpType.IsFunction t then
+            BinaryOp(UnaryOp("typeof", jse), "===", com.RefType t)
+         elif t = typeof<obj> then
+            Boolean true
+         elif t.IsInterface then
+            PropertyGet(jse, String "constructor")
+            |> fun cons -> PropertyGet(cons, com.RefType t)
+            |> fun infc -> BinaryOp(infc, "!==", Undefined)
+         else
+            BinaryOp(jse, "instanceof", com.RefType t)
+
    | Patterns.UnionCaseTest (CompileExpr com jse, uci) ->
       buildExpr <|
          if uci.DeclaringType.Name = typeof<_ option>.Name then
@@ -31,18 +37,14 @@ let private typeTest (com: Compiler) _ = function
             BinaryOp(PropertyGet(jse, String "Tag"), "===", Integer uci.Tag)
    | _ -> None
 
-let private coerce com _ = function
-   | Patterns.Coerce (CompileExpr com jse as sourceExpr, targetType) ->
-      buildExpr <|
-         if targetType.IsInterface && (not sourceExpr.Type.IsInterface) then
-            let impl = Applications.getGenTypeDef sourceExpr.Type
-            let infc = impl.GetInterfaces() |> Array.find (fun x -> x.Name = targetType.Name)
-            Coerce(impl, infc, jse)
-         else
-            jse
+let private coerce (com: ICompiler) _ = function
+   | Patterns.Coerce (sourceExpr, targetType) ->
+      if targetType.IsInterface && (not sourceExpr.Type.IsInterface) then
+         com.AddInterface(sourceExpr.Type, targetType)
+      buildExpr <| com.CompileExpr sourceExpr
    | SpecificCall <@ ignore @>   (_,_,[x]) -> buildExpr <| com.CompileExpr x
-   | SpecificCall <@ box @>   (_,_,[x]) -> buildExpr <| com.CompileExpr x
-   | SpecificCall <@ unbox @>   (_,_,[x]) -> buildExpr <| com.CompileExpr x
+   | SpecificCall <@ box @>      (_,_,[x]) -> buildExpr <| com.CompileExpr x
+   | SpecificCall <@ unbox @>    (_,_,[x]) -> buildExpr <| com.CompileExpr x
 
    | Patterns.Call(None, mi, [x]) ->
       if mi.Name = "UnboxGeneric" || mi.Name = "UnboxFast"
@@ -51,7 +53,7 @@ let private coerce com _ = function
 
    | _ -> None
 
-let private conversion (com: Compiler) _ = function
+let private conversion (com: ICompiler) _ = function
   | SpecificCall <@ sbyte @>   (_,_,[x]) -> buildExpr <| com.CompileExpr x
   | SpecificCall <@ byte @>    (_,_,[x]) -> buildExpr <| com.CompileExpr x
   | SpecificCall <@ int16 @>   (_,_,[x]) -> buildExpr <| com.CompileExpr x
@@ -76,7 +78,7 @@ let private conversion (com: Compiler) _ = function
 
 // TODO: opening the System namespace is not recommended
 // Provide a different way to parse numbers?
-let private parsing (com: Compiler) _ = function
+let private parsing (com: ICompiler) _ = function
    | SpecificCall <@ System.Boolean.Parse @> (_,_,[x]) -> emit com "parseInt({0})" x   // TODO: Use Boolean(x) or !!x ?
    | SpecificCall <@ System.Byte.Parse @>    (_,_,[x]) -> emit com "parseInt({0})" x
    | SpecificCall <@ System.UInt16.Parse @>  (_,_,[x]) -> emit com "parseInt({0})" x
@@ -94,10 +96,16 @@ let private parsing (com: Compiler) _ = function
 // ExpressionReplacer.createUnsafe <@ Decimal.Parse @> <@ parseFloat @>
 // ExpressionReplacer.create <@ Guid.Parse @> <@ parseGuid @>
    | _ -> None
+
+let private toPropertyNameFromLambda (com: ICompiler) _ = function
+   | Patterns.Quote(Patterns.Lambda(_,Patterns.PropertyGet(_, pi, _))) ->
+      buildExpr <| com.CompileExpr (Expr.Value(pi.Name))
+   | _ -> None
    
 let components: CompilerComponent list = [
    conversion
    parsing
    typeTest
    coerce
+   toPropertyNameFromLambda
 ]

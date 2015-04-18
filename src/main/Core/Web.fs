@@ -174,6 +174,33 @@ type WebRequest(url : string) =
         
     static member Create(uri : string) = WebRequest(uri)
 
+    member req.AsyncGetJSON<'T>() =
+      req.Headers.Add("Accept", "application/json")
+      Async.FromContinuations(fun (onSuccess, onError, _) ->
+            let onReceived(data) = onSuccess(unbox<'T>(FSUtil.parseJSON data))
+            let onErrorReceived() = onError(null)
+            sendRequest(
+               "GET", req.Url, req.Headers.Keys, req.Headers.Values, 
+               null, onReceived, onErrorReceived)
+      )
+    member req.AsyncPostJSON<'T>(data: 'T) =
+      req.Headers.Add("Accept", "application/json")
+      req.Headers.Add("Content-Type", "application/json")
+      Async.FromContinuations(fun (onSuccess, onError, _) ->
+            let onReceived(data) = onSuccess(unbox<'T>(FSUtil.parseJSON data))
+            let onErrorReceived() = onError(null)
+            sendRequest(
+               "POST", req.Url, req.Headers.Keys, req.Headers.Values, 
+               FSUtil.stringifyJSON(data), onReceived, onErrorReceived)
+      )
+//    member req.AsyncGetJSONP<'T>() =
+//      req.Headers.Add("Accept", "application/json")
+//      Async.FromContinuations(fun (onSuccess, _, _) ->
+//            let onReceived(data) = onSuccess(unbox<'T>(Globals.JSON.parse data))
+////                let onErrorReceived() = onError(null)
+//            FunScript.HTML.Util.loadJSONP req.Url onReceived
+//      )
+
 [<JS>]
 type WebUtility() =
     [<JSEmitInline("encodeURIComponent({0})")>]

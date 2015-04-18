@@ -6,26 +6,20 @@ open System.Reflection
 open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Reflection
 
-type JSRef =
-   | Var of Var
-   | Type of Type
-   | Method of MethodBase
-   | Case of UnionCaseInfo
-
-// ATTENTION: if new cases are added to JSExpr, FSCompiler.traverseJsi may need to be updated
-and JSExpr =
+type JSExpr =
    | Null
    | Undefined
    | Boolean of bool
    | Number of float
    | Integer of int
    | String of string
+   | Var of Var
+   /// Do not use this constructor directly. Call ICompiler.RefType instead.
+   | Type of Type
    | Object of (string * JSExpr) list
    | PropertyGet of JSExpr * JSExpr
    | Array of JSExpr list
    | Apply of JSExpr * JSExpr list
-   | Reference of JSRef
-   | Coerce of Type * Type * JSExpr
    | New of JSExpr * JSExpr list
    | Lambda of Var list * JSStatement
    | UnaryOp of string * JSExpr
@@ -36,19 +30,20 @@ and JSExpr =
       let printArgs (args: JSExpr list) =
          args |> List.map (fun a -> a.Print pad scope) |> String.concat ("," + sp)
       match value with
-      | Reference ref ->
-         match ref with
-         | Method meth -> sprintf "'%s'" (mapMethod meth)
-         | Case uci -> sprintf "'%s'" (mapCase uci)
-         | Var var ->
-            if var.Name = "this" then "this" else Map.find var scope
-         | Type t ->
-            if t.IsGenericParameter then sprintf "$%s" t.Name // findGenericVarName scope t
-            elif t.IsInterface then sprintf "'%s'" (mapType t)
-            else sprintf "ns['%s']" (mapType t)
+      | Var var ->
+         match var.Name with
+         // In private methods defined with let, `_this` is passed as argument but then `this` is used as variable
+         | "this" -> scope |> Map.tryFindKey (fun (k: Var) v -> v = "_this" && k.Type = var.Type)
+                           |> function Some _ -> "_this" | None -> "this"
+         | _ -> if Map.containsKey var scope then scope.[var] else failwithf "Var %s not found in scope" var.Name
 
-      | Coerce (_,_,e) ->
-         e.Print pad scope
+      | Type t ->
+         if t.IsGenericParameter then sprintf "$%s" t.Name
+         elif t.IsInterface then "'" + (mapType t) + "'"
+         else let tname = mapType t
+              if isValidJSVarName tname
+              then "ns."  + tname
+              else "ns['" + tname + "']"
 
       | New (expr, args) ->
          sprintf "new %s(%s)" (expr.Print pad scope) (printArgs args)
@@ -68,7 +63,16 @@ and JSExpr =
          sprintf "{%s}" filling
 
       | PropertyGet(objExpr, propExpr) ->
-         sprintf "%s[%s]" (objExpr.Print pad scope) (propExpr.Print pad scope)
+         match propExpr with
+         | String str when isValidJSVarName str ->
+            sprintf "%s.%s" (objExpr.Print pad scope) str
+         | _ ->
+            let prop = propExpr.Print pad scope
+            match isJSString prop with
+            | Some str when isValidJSVarName str ->
+               sprintf "%s.%s" (objExpr.Print pad scope) str
+            | _ ->
+               sprintf "%s[%s]" (objExpr.Print pad scope) (propExpr.Print pad scope)
 
       | Array exprs -> 
          sprintf "[%s]" (printArgs exprs)
@@ -97,10 +101,10 @@ and JSExpr =
             let pattern = sprintf "{%i}" i
             if code.Contains pattern then
                match args with
-               | [] -> failwithf "JSEmit \"%s\" is being called without argument %s" template pattern
+               | [] -> failwithf "EmitExpr \"%s\" called without arg%s" template pattern
                | arg::args -> code.Replace(pattern, arg.Print pad scope), args
             else
-               code, args
+               match args with [] -> code, [] | arg::args -> code, args
          let rec replaceRec code args i =
                match args with
                | [] -> code
@@ -113,6 +117,27 @@ and JSExpr =
                    |> String.concat ("," + sp)
                    |> fun args -> code.Replace("{args}", args)
          else replaceRec code args 1
+
+//   member value.Traverse (exprVisitor: JSExpr->'a->'a) (stmentVisitor: JSStatement->'a->'a) (state: 'a) =
+//      let state, traverse = exprVisitor value state, fun (e: JSExpr) -> e.Traverse exprVisitor stmentVisitor
+//      match value with
+//      | Reference _
+//      | Null        
+//      | Undefined   
+//      | Boolean _   
+//      | Integer _   
+//      | Number _    
+//      | String _ -> state 
+//      | New (expr, _)
+//      | UnaryOp(_, expr)
+//      | BinaryOp(exprA, _, exprB)
+//      | PropertyGet(exprA, exprB) -> traverse exprA state |> traverse exprB
+//      | Array exprs
+//      | EmitExpr (_, exprs) -> exprs |> List.fold (fun st e -> traverse e st) state 
+//      | Object propExprs -> propExprs |> List.fold (fun st (_, e) -> traverse e st) state
+//      | Lambda(_, block) -> block.Traverse exprVisitor stmentVisitor state
+//      | Apply(lambdaExpr, argExprs) ->
+//         traverse lambdaExpr state |> fun st -> List.fold (fun st e -> traverse e st) st argExprs
 
 and JSStatement =
    // No DebugInfo
@@ -127,12 +152,10 @@ and JSStatement =
    | Return of DebugInfo * JSExpr
    | Throw of DebugInfo * JSExpr
    | Assign of DebugInfo * JSExpr * JSExpr
-   | AssignGlobal of JSExpr * JSExpr
    | Let of DebugInfo * Var * JSExpr * JSStatement
    | IfThenElse of DebugInfo * JSExpr * JSStatement * JSStatement
    | WhileLoop of DebugInfo * JSExpr * JSStatement
    | ForLoop of DebugInfo * Var * JSExpr * JSExpr * JSStatement
-   member statement.PrintGlobal() = statement.Print 0 Map.empty
    member statement.Print pad scope =
       let sp, newL, newL' = getSpace(), getNewline pad, getNewline (pad + 1)
       match statement with
@@ -141,7 +164,6 @@ and JSStatement =
       | Sequential (first, second) ->
          match first with
          | Empty -> second.Print pad scope
-         | AssignGlobal _ -> sprintf "%s%s" (first.Print pad scope) (second.Print pad scope)
          | _ ->
             match second with
             | Empty -> first.Print pad scope
@@ -166,23 +188,21 @@ and JSStatement =
             sp newL' (finallyExpr.Print (pad + 1) scope) newL
       
       | Do(_, expr) ->
-         sprintf "%s" (expr.Print pad scope)
+         expr.Print pad scope
       
       | Return(_, expr) ->
-         sprintf "return %s" (expr.Print pad scope)
+         "return " + (expr.Print pad scope)
       
       | Throw(_, valExpr) ->
          sprintf "throw(%s)" (valExpr.Print pad scope)
       
       | Assign(_, varExpr, valExpr) ->
-         sprintf "%s%s=%s%s" (varExpr.Print pad scope) sp sp (valExpr.Print pad scope)
-      
-      | AssignGlobal(varExpr, valExpr) ->
-         sprintf "%s%s=%s%s;%s" (varExpr.Print pad scope) sp sp (valExpr.Print pad scope) newL
-      
+         (sprintf "%s%s=%s%s" (varExpr.Print pad scope) sp sp (valExpr.Print pad scope)) +
+         if (* Global Assign: types, methods... *) pad = 0 then ";" + newL else ""
+            
       | Let(_, var, assignment, body) ->
-         let newScope, name = mapVar scope var
-         sprintf "var %s%s=%s%s;%s%s" name sp sp (assignment.Print pad scope) newL (body.Print pad newScope)
+         let scope, name = mapVar scope var
+         sprintf "var %s%s=%s%s;%s%s" name sp sp (assignment.Print pad scope) newL (body.Print pad scope)
 
       | IfThenElse(_, cond, trueBlock, falseBlock) ->
          let cond' = cond.Print pad scope
@@ -207,48 +227,58 @@ and JSStatement =
             name (toExpr.Print pad scope) name
             sp newL' (block.Print (pad + 1) newScope) newL
 
+//   member statement.Traverse (exprVisitor: JSExpr->'a->'a) (stmentVisitor: JSStatement->'a->'a) (state: 'a) =
+//      let state = stmentVisitor statement state
+//      let travExpr = fun (e: JSExpr) -> e.Traverse exprVisitor stmentVisitor
+//      let travStment = fun (s: JSStatement) -> s.Traverse exprVisitor stmentVisitor
+//      match statement with
+//      | Empty -> state
+//      | Throw(_, expr)
+//      | Do(_, expr)
+//      | Return(_, expr) -> travExpr expr state
+//      | Assign(_, exprA, exprB) -> travExpr exprA state |> travExpr exprB
+//      | Sequential(stmentA, stmentB)
+//      | TryCatch(stmentA, _, stmentB)
+//      | TryFinally(stmentA, stmentB) -> travStment stmentA state |> travStment stmentB
+//      | TryCatchFinally(tryStment, _, catchStment, finalStment) ->
+//         travStment tryStment state |> travStment catchStment |> travStment finalStment
+//      | WhileLoop(_, expr, stment)
+//      | Let(_, _, expr, stment) -> travExpr expr state |> travStment stment
+//      | IfThenElse(_, cond, trueBlock, falseBlock) ->
+//         travExpr cond state |> travStment trueBlock |> travStment falseBlock
+//      | ForLoop(_, _, fromExpr, toExpr, block) ->
+//         travExpr fromExpr state |> travExpr toExpr |> travStment block
+
 type JSInstruction =
    | Expr of JSExpr
    | Statement of JSStatement
 
+type ReturnStrategy =
+   | Inplace    
+   | ReturnFrom
+   member x.Return(dinfo: DebugInfo, e: JSExpr) =
+      match x with
+      | Inplace -> Do(dinfo, e)
+      | ReturnFrom -> Return(dinfo, e)
+
+type ICompiler =
+   abstract member TypeMappings: Map<string, Type>
+
+   abstract member CompileExpr: Expr -> JSExpr
+   abstract member CompileCall: Expr -> Expr list -> JSExpr
+   abstract member CompileStatement: ReturnStrategy -> Expr -> JSStatement
+
+   abstract member RefType: System.Type -> JSExpr
+   abstract member RefCase: UnionCaseInfo -> JSExpr
+   abstract member RefMethod: MethodBase * JSExpr option -> JSExpr
+
+   abstract member AddInterface: impl:Type * infc:Type -> unit
+
+type CompilerComponent = ICompiler -> ReturnStrategy -> Expr -> JSInstruction option
+
 let buildExpr = JSInstruction.Expr >> Some
 let buildStatement = JSInstruction.Statement >> Some
 
-let refVar v = Reference(Var v)
+let (|CompileExpr|)      (compiler: ICompiler) = compiler.CompileExpr
+let (|CompileStatement|) (compiler: ICompiler) = compiler.CompileStatement
 
-let refType t =
-   if   t = typeof<bool> then String("boolean")
-   elif t = typeof<string> || t = typeof<char> then String("string")
-   elif t.IsPrimitive then String("number")
-   elif t = typeof<obj> then String("object")
-   elif t.IsArray || t.Name.StartsWith("Tuple") then String("Array") // TODO TODO TODO
-   else
-      // Generic types shouldn't get to this point, but make the check just in case
-      // (Note: it's possible that generic types arguments of other types reach here, like List<IEnumerable<int>>)
-      let t = if t.IsGenericType then t.GetGenericTypeDefinition() else t
-      let cis = t.GetConstructors(BindingFlags.All)
-      if cis.Length > 0 then
-         match cis.[0].TryGetAttribute<JSEmitInlineAttribute>() with
-         | Some att -> EmitExpr(att.Emit, [])
-         | None -> Reference(Type t)
-      else
-         Reference(Type t)
-
-let refMethodCall(meth: MethodBase, target: JSExpr option) =
-   if meth.DeclaringType.IsInterface then
-      match target with
-      | None -> failwith "Please report: Interface method referred as static"
-      | Some target -> PropertyGet(
-                        PropertyGet(
-                           PropertyGet(target, String "constructor"),
-                           refType meth.DeclaringType),
-                        Reference(Method meth))
-   else
-      PropertyGet(refType meth.DeclaringType, Reference(Method meth))
-
-let refMethodDef(meth: MethodBase, typ: Type ) =
-   if meth.DeclaringType.IsInterface then
-      PropertyGet(PropertyGet(refType typ, refType meth.DeclaringType),
-                  Reference(Method meth))
-   else
-      PropertyGet(refType typ, Reference(Method meth))

@@ -1,7 +1,6 @@
 ﻿module internal FunScript.PrimitiveTypes
 
 open AST
-open InternalCompiler
 open System
 open Microsoft.FSharp.Quotations.Patterns
 open Microsoft.FSharp.Quotations.DerivedPatterns
@@ -27,7 +26,7 @@ open Microsoft.FSharp.Quotations.DerivedPatterns
 //      | _ -> []
 
 let private primitiveValues _ _ = function
-   | Unit x ->   buildExpr <| JSExpr.Undefined        
+   | Unit _ ->   buildExpr <| JSExpr.Undefined        
    | Bool x ->   buildExpr <| JSExpr.Boolean x        
    | Char x ->   buildExpr <| JSExpr.String (string x)
    | String x -> buildExpr <| JSExpr.String x         
@@ -49,14 +48,14 @@ let private primitiveValues _ _ = function
 let private isPrimitive (t: Type) =
    t.IsPrimitive || t.IsEnum || t = typeof<string>
 
-let private unaryOp (com: Compiler) op hsT hs =
+let private unaryOp (com: ICompiler) op hsT hs =
 // TODO TODO TODO: If not primitive, check if there's an implementation or default (generics?)
 //   if isPrimitive hsT
 //   then buildExpr <| UnaryOp(op, com.CompileExpr hs)
 //   else None
    buildExpr <| UnaryOp(op, com.CompileExpr hs)
 
-let private binaryOp (com: Compiler) op lhsT rhsT lhs rhs =
+let private binaryOp (com: ICompiler) op lhsT rhsT lhs rhs =
 // TODO TODO TODO: If not primitive, check if there's an implementation or default (generics?)
 //   if isPrimitive lhsT && isPrimitive rhsT
 //   then buildExpr <| BinaryOp(com.CompileExpr lhs, op, com.CompileExpr rhs)
@@ -83,7 +82,7 @@ let private primitiveOps com _ = function
 
    | _ -> None
 
-let private arrayCreation (com: Compiler) ret = function
+let private arrayCreation (com: ICompiler) ret = function
    | NewArray(_, exprs) 
    | NewTuple(exprs) ->
       let exprs = List.map (com.CompileExpr) exprs
@@ -94,24 +93,22 @@ let private seqs com _ = function
    | SpecificCall <@ seq @> (_,_,[CompileExpr com expr]) ->
       buildExpr expr
    | SpecificCall <@ Seq.delay @> (_,_,args) ->
-      buildExpr <| com.CompileCall <@ Core.Collections.Seq.delay @> args
+      buildExpr <| com.CompileCall <@ Core.Seq.delay @> args
    | SpecificCall <@ Seq.map @> (_,_,args) ->
-      buildExpr <| com.CompileCall <@ Core.Collections.Seq.map @> args
+      buildExpr <| com.CompileCall <@ Core.Seq.map @> args
    | SpecificCall <@ op_Range @>   (_,_,args) ->
-      buildExpr <| com.CompileCall <@ Core.Collections.Range.oneStep @> args
+      buildExpr <| com.CompileCall <@ Core.Range.oneStep @> args
    | SpecificCall <@ op_RangeStep @>   (_,_,args) ->
-      buildExpr <| com.CompileCall <@ Core.Collections.Range.customStep @> args
+      buildExpr <| com.CompileCall <@ Core.Range.customStep @> args
    | _ -> None
 
-// TODO TODO TODO: raise, failwith, invalidOp, invalidArg
 let private errors com _ expr =
    match expr with
-   | SpecificCall <@ raise @> (_,_,[CompileExpr com jse])
-   | SpecificCall <@ failwith @> (_,_,[CompileExpr com jse]) ->
+   | SpecificCall <@ Core.Operators.raise @> (_,_,[CompileExpr com jse]) ->
       buildStatement <| Throw(expr.DebugInfo, jse)
    | _ -> None
 
-let private printFormatToString (com: Compiler) _ = function
+let private printFormatToString (com: ICompiler) _ = function
    | Call(_, mi, [Coerce(NewObject(_,args),_)]) when mi.Name = "PrintFormatToString" ->
       buildExpr <| com.CompileCall <@ Core.String.PrintFormatToString @> args
    | _ -> None

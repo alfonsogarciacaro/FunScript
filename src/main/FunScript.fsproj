@@ -56,31 +56,25 @@
   <Import Project="$(FSharpTargetsPath)" Condition="Exists('$(FSharpTargetsPath)')" />
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
-    <Compile Include="Attributes.fs" />
     <Compile Include="Core\FSUtil.fs" />
     <Compile Include="Core\Primitives.fs" />
     <Compile Include="Core\Operators.fs" />
     <Compile Include="Core\Math.fs" />
+    <Compile Include="Core\Dictionary.fs" />
     <Compile Include="Core\Array.fs" />
     <Compile Include="Core\ResizeArray.fs" />
-    <Compile Include="Core\Map.fsi" />
     <Compile Include="Core\Map.fs" />
-    <Compile Include="Core\Set.fsi" />
     <Compile Include="Core\Set.fs" />
     <Compile Include="Core\Seq.fs" />
     <Compile Include="Core\list.fs" />
-    <Compile Include="Core\Option.fsi" />
     <Compile Include="Core\Option.fs" />
-    <Compile Include="Core\String.fsi" />
     <Compile Include="Core\String.fs" />
     <Compile Include="Core\Events.fs" />
     <Compile Include="Core\Async.fs" />
-    <Compile Include="Core\Dictionaries.fs" />
     <Compile Include="Core\Web.fs" />
     <Compile Include="Helpers.fs" />
     <Compile Include="JSMapper.fs" />
     <Compile Include="AST.fs" />
-    <Compile Include="InternalCompiler.fs" />
     <Compile Include="GetSet.fs" />
     <Compile Include="PrimitiveTypes.fs" />
     <Compile Include="Comparisons.fs" />
@@ -99,6 +93,13 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Web" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="Interop\FunScript.Interop.fsproj">
+      <Name>FunScript.Interop</Name>
+      <Project>{1e75b2c5-6139-4f9e-a2ea-858ba66f99ca}</Project>
+      <Private>True</Private>
+    </ProjectReference>
   </ItemGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.

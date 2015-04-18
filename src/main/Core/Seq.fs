@@ -1,6 +1,5 @@
-namespace FunScript.Core.Collections
+namespace FunScript.Core
 open FunScript
-open FunScript.Core
 
 open System.Collections
 open System.Collections.Generic

@@ -1,6 +1,5 @@
-﻿[<FunScript.JS>]
+﻿[<FunScript.JS; AutoOpen>]
 module FunScript.Core.Events
-open System
 
 type IObserver<'T> =   
    abstract OnNext : value:'T -> unit
@@ -16,7 +15,7 @@ type ActionObserver<'T> (onNext : 'T -> unit, onError : exn -> unit, onCompleted
      member this.OnCompleted() = onCompleted()
 
 type IObservable<'T> =
-   abstract Subscribe : observer:IObserver<'T> -> IDisposable
+   abstract Subscribe : observer:IObserver<'T> -> System.IDisposable
 
 type IDelegateEvent<'T> =
    abstract AddHandler : ('T -> unit) -> unit
@@ -32,7 +31,7 @@ type IEvent<'T> =
 let inline (!==) a b = failwith "never";
 
 type ActionDisposable(f) =
-   interface IDisposable with
+   interface System.IDisposable with
       member this.Dispose() = f()
 
 type private PublishedEvent<'T>(delegates:('T -> unit)[] ref) =
@@ -149,6 +148,56 @@ module Observable =
                 let h2 = w2.Subscribe(observer2)
                 new ActionDisposable(fun () -> h1.Dispose(); h2.Dispose()) :> System.IDisposable
 
+    type private TakeObservable<'T>(count: int, w: IObservable<'T>) =
+        interface IObservable<'T> with
+            member x.Subscribe(observer) =
+                let state = ref 0
+                let remover: System.IDisposable ref = ref null
+                let newObserver =
+                    ActionObserver<_>(
+                        onNext = (fun v -> if !state < count then state := !state + 1; observer.OnNext(v) else (!remover).Dispose()),
+                        onError = (fun e -> observer.OnError(e)),
+                        onCompleted = (fun () -> observer.OnCompleted())
+                    )
+                remover := w.Subscribe(newObserver)
+                new ActionDisposable(fun () -> (!remover).Dispose()) :> System.IDisposable
+
+    type private TakeWhileObservable<'T>(predicate:unit->bool, w: IObservable<'T>) =
+        interface IObservable<'T> with
+            member x.Subscribe(observer) =
+                let remover: System.IDisposable ref = ref null
+                let newObserver =
+                    ActionObserver<_>(
+                        onNext = (fun v -> if predicate() then observer.OnNext(v) else (!remover).Dispose()),
+                        onError = (fun e -> observer.OnError(e)),
+                        onCompleted = (fun () -> observer.OnCompleted())
+                    )
+                remover := w.Subscribe(newObserver)
+                new ActionDisposable(fun () -> (!remover).Dispose()) :> System.IDisposable
+
+    type private SkipObservable<'T>(count: int, w: IObservable<'T>) =
+        interface IObservable<'T> with
+            member x.Subscribe(observer) =
+                let state = ref 0
+                let newObserver =
+                    ActionObserver<_>(
+                        onNext = (fun v -> if !state < count then state := !state + 1 else observer.OnNext(v)),
+                        onError = (fun e -> observer.OnError(e)),
+                        onCompleted = (fun () -> observer.OnCompleted())
+                    )
+                w.Subscribe(newObserver)
+
+    type private SkipWhileObservable<'T>(predicate:unit->bool, w: IObservable<'T>) =
+        interface IObservable<'T> with
+            member x.Subscribe(observer) =
+                let started = ref false
+                let newObserver =
+                    ActionObserver<_>(
+                        onNext = (fun v -> if !started || not (predicate()) then started := true; observer.OnNext(v)),
+                        onError = (fun e -> observer.OnError(e)),
+                        onCompleted = (fun () -> observer.OnCompleted())
+                    )
+                w.Subscribe(newObserver)
 
     [<CompiledName("Map")>]
     let map f (w: IObservable<'T>) =
@@ -190,3 +239,19 @@ module Observable =
     let split (f : 'T -> Choice<'U1,'U2>) (w: IObservable<'T>) =
         choose (fun v -> match f v with Choice1Of2 x -> Some x | _ -> None) w,
         choose (fun v -> match f v with Choice2Of2 x -> Some x | _ -> None) w
+
+    [<CompiledName("Take")>]
+    let take count (w: IObservable<'T>) =
+        TakeObservable(count, w) :> IObservable<'T>
+
+    [<CompiledName("TakeWhile")>]
+    let takeWhile predicate (w: IObservable<'T>) =
+        TakeWhileObservable(predicate, w) :> IObservable<'T>
+
+    [<CompiledName("Skip")>]
+    let skip count (w: IObservable<'T>) =
+        TakeObservable(count, w) :> IObservable<'T>
+
+    [<CompiledName("SkipWhile")>]
+    let skipWhile predicate (w: IObservable<'T>) =
+        TakeWhileObservable(predicate, w) :> IObservable<'T>

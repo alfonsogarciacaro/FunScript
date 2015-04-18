@@ -1,6 +1,5 @@
-﻿namespace FunScript.Core.Collections
+﻿namespace FunScript.Core
 open FunScript
-open FunScript.Core
 
 /// <summary>Basic operations on arrays.</summary>
 [<JS; RequireQualifiedAccess>]
@@ -52,7 +51,7 @@ module Array =
       ys
 
    [<JSEmitInline("(new Array({0}))")>]
-   let zeroCreate (size:int) : 'a[] = failwith "never"
+   let zeroCreate<'a> (size:int) : 'a[] = failwith "never"
 
    let createInstance(_type : obj, size) =
       zeroCreate size : obj[]

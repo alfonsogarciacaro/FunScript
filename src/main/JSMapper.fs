@@ -7,18 +7,6 @@ open System.Text.RegularExpressions
 open Microsoft.FSharp.Reflection
 open Microsoft.FSharp.Quotations
 
-//let alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
-//
-//let obtainFreeCompressedName (scope: Set<Var>) (var: Var) =
-//   let rec buildName (acc : StringBuilder) i =
-//      let letterCode = i % alphabet.Length
-//      acc.Append alphabet.[letterCode] |> ignore
-//      let nextI = (i - letterCode) / alphabet.Length
-//      if nextI <> 0 then
-//         buildName acc nextI
-//      else acc.ToString()
-//   buildName (StringBuilder()) scope.Count
-
 let private keywords =
    set [
       "break"
@@ -87,7 +75,7 @@ let private reservedWords =
 
 let private unsafeWords = keywords + reservedWords
 
-let private preventConflicts exists str =
+let preventConflicts exists str =
    let rec check n =
       let name = if n > 0 then sprintf "%s%i" str n else str
       if not (exists name)
@@ -95,7 +83,7 @@ let private preventConflicts exists str =
       else check (n+1)
    check 0
 
-let mutable private cache = Dictionary<System.Type, string * Dictionary<obj, string>>()
+let mutable private cache = Dictionary<System.Type, string>()
 let resetCache() = cache <- Dictionary<_,_>()
 
 let private sanitizeVarName =
@@ -110,16 +98,8 @@ let mapVar scope var =
       scope |> Map.exists (fun _ x' -> x = x'))
    |> fun name -> scope.Add(var, name), name
 
-let findGenericVarName (scope: Map<Var, string>) (typ: System.Type) =
-   scope
-   |> Map.tryPick (fun k v ->
-      if k.Type.MetadataToken = typ.MetadataToken then Some v else None)
-   |> function
-      | Some name -> name
-      | None -> failwithf "Couldn't find generic var for type %s" typ.Name
-
 let mapType (typ: System.Type) =
-   if cache.ContainsKey typ then fst cache.[typ]
+   if cache.ContainsKey typ then cache.[typ]
    else
       let name =
          HttpUtility.JavaScriptStringEncode typ.Name
@@ -127,27 +107,12 @@ let mapType (typ: System.Type) =
             let i = x.IndexOf '`'
             if i >= 0 then x.Substring(0, i) else x
          |> preventConflicts (fun x ->
-            cache.Values |> Seq.exists (fun (x',_) -> x = x'))
-      cache.Add(typ, (name, Dictionary<_,_>()))
+            cache.Values |> Seq.exists (fun x' -> x = x'))
+      cache.Add(typ, name)
       name
-
-let private mapCall (call: obj, typ: System.Type, name: string) =
-   ignore(mapType typ)           // Force type mapping in case it wasn't cached yet
-   let meths = snd cache.[typ]
-   if meths.ContainsKey call then meths.[call]
-   else
-      let name =
-         HttpUtility.JavaScriptStringEncode name
-         |> preventConflicts (fun x ->
-            meths.Values |> Seq.exists (fun x' -> x = x'))
-      meths.Add(call, name)
-      name
-
-let mapCase (uci: UnionCaseInfo) = mapCall(uci, uci.DeclaringType, uci.Name)
-let mapMethod (meth: MethodBase) = mapCall(meth, meth.DeclaringType, meth.Name)
 
 let getSpace() = " "
-let getNewline padding = System.Environment.NewLine + (String.init padding (fun _ -> "  "))
+let getNewline padding = System.Environment.NewLine + (String.init padding (fun _ -> "\t"))
 
 // TODO
 let compressEmittedExpr (jscode: string) = jscode
@@ -156,4 +121,12 @@ let removeTrailingZeroes =
    let reg = Regex("(\.\d+?)0+$")
    fun number -> reg.Replace(number, "$1")
 
+let isValidJSVarName =
+   let reg = Regex("^[$_a-zA-Z][$_a-zA-Z0-9]*$") // TODO: Improve this regex
+   fun s -> reg.IsMatch s
 
+let isJSString =
+   let reg = Regex("^'(.*)'$")
+   fun s ->
+      let m = reg.Match s
+      if m.Success then Some m.Groups.[1].Value else None

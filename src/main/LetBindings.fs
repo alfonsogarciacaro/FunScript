@@ -1,27 +1,26 @@
 ﻿module internal FunScript.LetBindings
 
 open AST
-open InternalCompiler
 open Microsoft.FSharp.Quotations
 
-let private bindings (com: Compiler) ret = function
+let private bindings (com: ICompiler) ret = function
    | Patterns.LetRecursive(bindingExprs, CompileStatement com ret body) ->
       bindingExprs
+      |> List.rev
       |> List.fold (fun (acc: JSStatement) (var, assignment) ->
-         let compiledAssignment = com.CompileExpr assignment
          // TODO: Check if the source mapping works properly in this case
-         Let(assignment.DebugInfo, var, compiledAssignment, acc)) body
+         Let(assignment.DebugInfo, var, com.CompileExpr assignment, acc)) body
       |> buildStatement
    | Patterns.Let(var, CompileExpr com assignment, CompileStatement com ret body) as e ->
       Let(e.DebugInfo, var, assignment, body)
       |> buildStatement
    | _ -> None
 
-let private vars (com: Compiler) _ = function
+let private vars (com: ICompiler) _ = function
    | Patterns.Var(var) ->
-      buildExpr <| refVar var
+      buildExpr <| JSExpr.Var var
    | Patterns.VarSet(var, CompileExpr com assignment) as e -> 
-      buildStatement <| Assign(e.DebugInfo, refVar var, assignment)
+      buildStatement <| Assign(e.DebugInfo, JSExpr.Var var, assignment)
    | _ -> None
 
 let components: CompilerComponent list = [ 

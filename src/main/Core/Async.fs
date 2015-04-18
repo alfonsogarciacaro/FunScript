@@ -1,5 +1,6 @@
-﻿[<FunScript.JS; AutoOpen>]
+﻿[<FunScript.JS; AutoOpen; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module FunScript.Core.Async
+open FunScript
 
 type CancellationToken = 
    private { Cell : option<bool ref> }
@@ -26,8 +27,11 @@ type AsyncParams<'T> =
 
 type Async<'T> = Cont of (AsyncParams<'T> -> unit)
 
-[<FunScript.JSEmitInlineAttribute("window.setTimeout({0}, {1})")>]
+[<FunScript.JSEmitInline("setTimeout({0}, {1})")>]
 let setTimeout (handler:unit -> unit, milliseconds:float) = failwith "never"
+
+[<FunScript.JSEmitInline("requestAnimationFrame({0})")>]
+let private requestAnimationFrame(handler:float -> unit): int = failwith "never"
   
 let protectedCont f = Cont (fun args ->
    args.Aux.CancellationToken.ThrowIfCancellationRequested()
@@ -77,7 +81,7 @@ type AsyncBuilder() =
       else 
          x.Return()
 
-   member x.TryWith(Cont v : Async<'T>, catchFunction) =
+   member x.TryWith(Cont v : Async<'T>, catchFunction : exn -> Async<'T>) =
       protectedCont <| fun k ->
          k.Aux.CancellationToken.ThrowIfCancellationRequested()
          v {
@@ -85,7 +89,7 @@ type AsyncBuilder() =
                Aux = 
                {
                   k.Aux with
-                     ExceptionCont = fun ex -> k.Cont(catchFunction ex)
+                     ExceptionCont = fun ex -> k.Cont(unbox(catchFunction ex))
                }
          }
 
@@ -119,6 +123,44 @@ type Async =
 
    static member CancellationToken = protectedCont <| fun k ->
       k.Cont k.Aux.CancellationToken
+
+   /// Use this if you want to have animations in async workflows that can be easily cancelled
+   static member AwaitAnimationFrame(): Async<float> =
+      unbox(protectedCont <| fun k ->
+            requestAnimationFrame(fun ts ->
+               k.Aux.CancellationToken.ThrowIfCancellationRequested()
+               k.Cont ts) |> ignore)
+
+   [<CompiledName("AwaitObservable1")>]
+   static member AwaitObservable(w1: IObservable<'T>): Async<'T> =
+      unbox(protectedCont <| fun k ->
+            let remover: System.IDisposable ref = ref null
+            let observer = FunScript.Core.Events.ActionObserver(fun value ->
+               (!remover).Dispose()
+               k.Aux.CancellationToken.ThrowIfCancellationRequested()
+               k.Cont value)
+            remover := (unbox w1: FunScript.Core.Events.IObservable<'T>).Subscribe(observer))
+      
+   [<CompiledName("AwaitObservable2")>]
+   static member AwaitObservable(ev1:IObservable<_>, ev2:IObservable<_>) =
+      let ev1 = Observable.map Choice1Of2 ev1
+      let ev2 = Observable.map Choice2Of2 ev2
+      Async.AwaitObservable(Observable.merge ev1 ev2)
+
+   [<CompiledName("AwaitObservable3")>]
+   static member AwaitObservable(ev1:IObservable<_>, ev2:IObservable<_>, ev3:IObservable<_>) =
+      let ev1 = Observable.map Choice1Of3 ev1
+      let ev2 = Observable.map Choice2Of3 ev2
+      let ev3 = Observable.map Choice3Of3 ev3
+      Async.AwaitObservable(Observable.merge ev1 ev2 |> Observable.merge ev3)
+
+   [<CompiledName("AwaitObservable4")>]
+   static member AwaitObservable(ev1:IObservable<_>, ev2:IObservable<_>, ev3:IObservable<_>, ev4:IObservable<_>) =
+      let ev1 = Observable.map Choice1Of4 ev1
+      let ev2 = Observable.map Choice2Of4 ev2
+      let ev3 = Observable.map Choice3Of4 ev3
+      let ev4 = Observable.map Choice4Of4 ev4
+      Async.AwaitObservable(Observable.merge ev1 ev2 |> Observable.merge ev3 |> Observable.merge ev4)
 
 (*
    static member AwaitJQueryEvent(f : ('T -> unit) -> j._JQuery) : Async<'T> = 

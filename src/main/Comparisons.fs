@@ -1,12 +1,11 @@
 ﻿module internal FunScript.Comparisons
 
 open AST
-open InternalCompiler
 open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Quotations.DerivedPatterns
 
 // TODO TODO TODO: Structural comparison for non primitives and IComparable checking
-let private comparison (com: Compiler) _ e =
+let private comparison (com: ICompiler) _ e =
    let comp = com.CompileExpr
    let binOp (op: string) lhs rhs = BinaryOp(comp lhs, op, comp rhs) |> buildExpr
    let emit (pattern: string) lhs rhs = EmitExpr(pattern, [comp lhs; comp rhs]) |> buildExpr

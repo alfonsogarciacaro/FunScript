@@ -25,6 +25,8 @@ module ExtraHashCompare =
 
 
 module QuotationEvaluation = 
+
+    let raise = Microsoft.FSharp.Core.Operators.raise
     
     type This = 
         static member Assembly = typeof<This>.Assembly
