@@ -1,10 +1,7 @@
 ﻿module internal FunScript.AST
 
 open JSMapper
-open System
-open System.Reflection
-open Microsoft.FSharp.Quotations
-open Microsoft.FSharp.Reflection
+open Microsoft.FSharp.Compiler.SourceCodeServices
 
 type JSExpr =
    | Null
@@ -15,7 +12,7 @@ type JSExpr =
    | String of string
    | Var of Var
    /// Do not use this constructor directly. Call ICompiler.RefType instead.
-   | Type of Type
+   | Type of FSharpType
    | Object of (string * JSExpr) list
    | PropertyGet of JSExpr * JSExpr
    | Array of JSExpr list
@@ -25,21 +22,22 @@ type JSExpr =
    | UnaryOp of string * JSExpr
    | BinaryOp of JSExpr * string * JSExpr
    | EmitExpr of string * JSExpr list
-   member value.Print pad scope =
+
+   member value.Print pad (scope: System.Collections.Generic.Dictionary<Var,string>) =
       let sp = getSpace()
       let printArgs (args: JSExpr list) =
          args |> List.map (fun a -> a.Print pad scope) |> String.concat ("," + sp)
       match value with
       | Var var ->
-         match var.Name with
+         match var.CompiledName with
          // In private methods defined with let, `_this` is passed as argument but then `this` is used as variable
-         | "this" -> scope |> Map.tryFindKey (fun (k: Var) v -> v = "_this" && k.Type = var.Type)
+         | "this" -> scope |> Seq.tryFind (fun kv -> kv.Value = "_this" && kv.Key.FullType = var.FullType)
                            |> function Some _ -> "_this" | None -> "this"
-         | _ -> if Map.containsKey var scope then scope.[var] else failwithf "Var %s not found in scope" var.Name
+         | _ -> if scope.ContainsKey(var) then scope.[var] else failwithf "Var %s not found in scope" var.CompiledName
 
       | Type t ->
-         if t.IsGenericParameter then sprintf "$%s" t.Name
-         elif t.IsInterface then "'" + (mapType t) + "'"
+         if t.IsGenericParameter then sprintf "$%s" t.TypeDefinition.CompiledName
+         elif t.TypeDefinition.IsInterface then "'" + (mapType t) + "'"
          else let tname = mapType t
               if isValidJSVarName tname
               then "ns."  + tname
@@ -155,7 +153,7 @@ and JSStatement =
    | Let of DebugInfo * Var * JSExpr * JSStatement
    | IfThenElse of DebugInfo * JSExpr * JSStatement * JSStatement
    | WhileLoop of DebugInfo * JSExpr * JSStatement
-   | ForLoop of DebugInfo * Var * JSExpr * JSExpr * JSStatement
+   | ForLoop of DebugInfo * Var * JSExpr * JSExpr * JSStatement * bool
    member statement.Print pad scope =
       let sp, newL, newL' = getSpace(), getNewline pad, getNewline (pad + 1)
       match statement with
@@ -262,19 +260,19 @@ type ReturnStrategy =
       | ReturnFrom -> Return(dinfo, e)
 
 type ICompiler =
-   abstract member TypeMappings: Map<string, Type>
+   abstract member TypeMappings: Map<string, FSharpType>
 
-   abstract member CompileExpr: Expr -> JSExpr
-   abstract member CompileCall: Expr -> Expr list -> JSExpr
-   abstract member CompileStatement: ReturnStrategy -> Expr -> JSStatement
+   abstract member CompileExpr: FSharpExpr -> JSExpr
+   abstract member CompileCall: FSharpExpr -> FSharpExpr list -> JSExpr
+   abstract member CompileStatement: ReturnStrategy -> FSharpExpr -> JSStatement
 
-   abstract member RefType: System.Type -> JSExpr
-   abstract member RefCase: UnionCaseInfo -> JSExpr
-   abstract member RefMethod: MethodBase * JSExpr option -> JSExpr
+   abstract member RefType: FSharpType -> JSExpr
+   abstract member RefCase: FSharpUnionCase -> JSExpr
+   abstract member RefMethod: FSharpMemberOrFunctionOrValue * JSExpr option -> JSExpr
 
-   abstract member AddInterface: impl:Type * infc:Type -> unit
+   abstract member AddInterface: impl:FSharpType * infc:FSharpType -> unit
 
-type CompilerComponent = ICompiler -> ReturnStrategy -> Expr -> JSInstruction option
+type CompilerComponent = ICompiler -> ReturnStrategy -> FSharpExpr -> JSInstruction option
 
 let buildExpr = JSInstruction.Expr >> Some
 let buildStatement = JSInstruction.Statement >> Some

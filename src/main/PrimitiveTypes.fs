@@ -1,9 +1,8 @@
 ﻿module internal FunScript.PrimitiveTypes
 
 open AST
-open System
-open Microsoft.FSharp.Quotations.Patterns
-open Microsoft.FSharp.Quotations.DerivedPatterns
+open Microsoft.FSharp.Compiler.SourceCodeServices
+open Microsoft.FSharp.Compiler.SourceCodeServices.BasicPatterns
 
 // TODO TODO TODO: Default values (see Options.fs in old FunScript version)
 
@@ -26,27 +25,35 @@ open Microsoft.FSharp.Quotations.DerivedPatterns
 //      | _ -> []
 
 let private primitiveValues _ _ = function
-   | Unit _ ->   buildExpr <| JSExpr.Undefined        
-   | Bool x ->   buildExpr <| JSExpr.Boolean x        
-   | Char x ->   buildExpr <| JSExpr.String (string x)
-   | String x -> buildExpr <| JSExpr.String x         
-   | SByte x ->  buildExpr <| JSExpr.Integer(int x)   
-   | Byte x ->   buildExpr <| JSExpr.Integer(int x)   
-   | Int16 x ->  buildExpr <| JSExpr.Integer(int x)   
-   | Int32 x ->  buildExpr <| JSExpr.Integer(x)       
-   | Int64 x ->  buildExpr <| JSExpr.Number(float x)  
-   | UInt16 x -> buildExpr <| JSExpr.Number(float x)  
-   | UInt32 x -> buildExpr <| JSExpr.Number(float x)  
-   | UInt64 x -> buildExpr <| JSExpr.Number(float x)  
-   | Single x -> buildExpr <| JSExpr.Number(float x)  
-   | Double x -> buildExpr <| JSExpr.Number(x)        
-   // TODO: our own decimal type?
-   | Value(null, _) -> buildExpr JSExpr.Null
-   | Value(x, t) when t.IsEnum -> buildExpr <|JSExpr.Integer(unbox x)
+   | Const(constValueObj, constType) ->
+      buildExpr <|
+         match constValueObj with
+         | :? unit ->        JSExpr.Null        
+         | :? bool   as x -> JSExpr.Boolean x        
+         | :? char   as x -> JSExpr.String (string x)
+         | :? string as x -> JSExpr.String x         
+         | :? sbyte  as x -> JSExpr.Integer(int x)   
+         | :? byte   as x -> JSExpr.Integer(int x)   
+         | :? int16  as x -> JSExpr.Integer(int x)   
+         | :? int32  as x -> JSExpr.Integer(x)       
+         | :? int64  as x -> JSExpr.Number(float x)  
+         | :? uint16 as x -> JSExpr.Number(float x)  
+         | :? uint32 as x -> JSExpr.Number(float x)  
+         | :? uint64 as x -> JSExpr.Number(float x)  
+         | :? single as x -> JSExpr.Number(float x)  
+         | :? double as x -> JSExpr.Number(x)        
+         // TODO: our own decimal type?
+         | _ ->
+            if constType.TypeDefinition.IsEnum
+            then JSExpr.Integer(unbox constValueObj)
+            else failwith "Unexpected" // TODO TODO TODO
+   | DefaultValue(constType) ->
+      if constType.TypeDefinition.IsValueType then JSExpr.Integer 0 else JSExpr.Null
+      |> buildExpr
    | _ -> None
 
-let private isPrimitive (t: Type) =
-   t.IsPrimitive || t.IsEnum || t = typeof<string>
+let private isPrimitive (t: FSharpType) =
+   t.TypeDefinition.IsValueType || t.TypeDefinition.FullName = "System.String"
 
 let private unaryOp (com: ICompiler) op hsT hs =
 // TODO TODO TODO: If not primitive, check if there's an implementation or default (generics?)
@@ -64,30 +71,39 @@ let private binaryOp (com: ICompiler) op lhsT rhsT lhs rhs =
 
 let private primitiveOps com _ = function
    // Arithmetic operators
-   | SpecificCall <@ (~-) @> (_,[hsT;_],[hs]) -> unaryOp com "-" hsT hs
-   | SpecificCall <@ (+) @>   (_,[lhsT;rhsT;_],[lhs;rhs]) -> binaryOp com "+" lhsT rhsT lhs rhs
-   | SpecificCall <@ (-) @>   (_,[lhsT;rhsT;_],[lhs;rhs]) -> binaryOp com "-" lhsT rhsT lhs rhs
-   | SpecificCall <@ (*) @>   (_,[lhsT;rhsT;_],[lhs;rhs]) -> binaryOp com "*" lhsT rhsT lhs rhs
-   | SpecificCall <@ (/) @>   (_,[lhsT;rhsT;_],[lhs;rhs]) -> binaryOp com "/" lhsT rhsT lhs rhs
-   | SpecificCall <@ (%) @>   (_,[lhsT;rhsT;_],[lhs;rhs]) -> binaryOp com "%" lhsT rhsT lhs rhs
-   | SpecificCall <@ (&&&) @> (_,[lhsT;rhsT;_],[lhs;rhs]) -> binaryOp com "&" lhsT rhsT lhs rhs
-   | SpecificCall <@ (|||) @> (_,[lhsT;rhsT;_],[lhs;rhs]) -> binaryOp com "|" lhsT rhsT lhs rhs
-   | SpecificCall <@ (>>>) @> (_,[lhsT;rhsT;_],[lhs;rhs]) -> binaryOp com ">>" lhsT rhsT lhs rhs
-   | SpecificCall <@ (<<<) @> (_,[lhsT;rhsT;_],[lhs;rhs]) -> binaryOp com "<<" lhsT rhsT lhs rhs
-   
-   // Logic operators
-   | SpecificCall <@ not @> (_,_,[hs]) -> unaryOp com "!" typeof<bool> hs
-   | OrElse(lhs, rhs) ->  binaryOp com "||" typeof<bool> typeof<bool> lhs rhs
-   | AndAlso(lhs, rhs) -> binaryOp com "&&" typeof<bool> typeof<bool> lhs rhs
-
+   | Call(target, mi, typeGenArgs, methGenArgs, [hs]) ->
+      let hsT = hs.Type
+      match mi.FullName with
+      | "Microsoft.FSharp.Core.Operators.( ~- )" -> unaryOp com "-" hsT hs
+      | "Microsoft.FSharp.Core.Operators.not" -> unaryOp com "!" typeof<bool> hs
+      | _ -> None
+   | Call(target, mi, typeGenArgs, methGenArgs, [lhs;rhs]) ->
+      let lhsT, rhsT = lhs.Type, rhs.Type
+      match mi.FullName with
+      | "Microsoft.FSharp.Core.Operators.( + )" -> binaryOp com "+" lhsT rhsT lhs rhs
+      | "Microsoft.FSharp.Core.Operators.( - )" -> binaryOp com "-" lhsT rhsT lhs rhs
+      | "Microsoft.FSharp.Core.Operators.( * )" -> binaryOp com "*" lhsT rhsT lhs rhs
+      | "Microsoft.FSharp.Core.Operators.( / )" -> binaryOp com "/" lhsT rhsT lhs rhs
+      | "Microsoft.FSharp.Core.Operators.( % )" -> binaryOp com "%" lhsT rhsT lhs rhs
+      | "Microsoft.FSharp.Core.Operators.( &&& )" -> binaryOp com "&" lhsT rhsT lhs rhs
+      | "Microsoft.FSharp.Core.Operators.( ||| )" -> binaryOp com "|" lhsT rhsT lhs rhs
+      | "Microsoft.FSharp.Core.Operators.( >>> )" -> binaryOp com ">>" lhsT rhsT lhs rhs
+      | "Microsoft.FSharp.Core.Operators.( <<< )" -> binaryOp com "<<" lhsT rhsT lhs rhs
+      | "Microsoft.FSharp.Core.LanguagePrimitives.IntrinsicOperators.( || )" ->
+         binaryOp com "||" typeof<bool> typeof<bool> lhs rhs
+      | "Microsoft.FSharp.Core.LanguagePrimitives.IntrinsicOperators.( && )" ->
+         binaryOp com "&&" typeof<bool> typeof<bool> lhs rhs
+      | _ -> None
    | _ -> None
 
 let private arrayCreation (com: ICompiler) ret = function
    | NewArray(_, exprs) 
-   | NewTuple(exprs) ->
+   | NewTuple(_, exprs) ->
       let exprs = List.map (com.CompileExpr) exprs
       buildExpr <| JSExpr.Array exprs
    | _ -> None
+
+open Microsoft.FSharp.Quotations.DerivedPatterns
 
 let private seqs com _ = function
    | SpecificCall <@ seq @> (_,_,[CompileExpr com expr]) ->

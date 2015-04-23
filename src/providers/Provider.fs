@@ -29,6 +29,12 @@ type RequireProviderImpl(config: TypeProviderConfig) as this =
    let namespaceName = "FunScript.Providers"
    let thisAssembly = Assembly.GetExecutingAssembly()
 
+   let nextName =
+      let count = ref -1
+      fun () ->
+         count:= !count + 1
+         "ReqAnonymous" + (string !count)
+
    let getArgs =
       let reg = System.Text.RegularExpressions.Regex("\w+")
       fun (f: obj) ->
@@ -38,6 +44,7 @@ type RequireProviderImpl(config: TypeProviderConfig) as this =
          |> Seq.toList
 
    let parseProp name t =
+      let name = name
       ProvidedProperty(
          propertyName = name,
          propertyType = t, 
@@ -45,6 +52,7 @@ type RequireProviderImpl(config: TypeProviderConfig) as this =
          SetterCode = (fun args -> <@@ Replacements.set (%%(args.[0]): obj) name (%%(args.[1]): obj) @@>))
 
    let parseMethod name signature =
+      let name = name
       ProvidedMethod(
          methodName = name, 
          parameters = getArgs signature,
@@ -52,7 +60,7 @@ type RequireProviderImpl(config: TypeProviderConfig) as this =
          InvokeCode = fun args ->
             <@@  Replacements.invoke (Replacements.get (%%(args.[0]): obj) name) %%(Expr.NewArray(typeof<obj>, args)) @@>) 
 
-   let rec parseType (name: string) (tcount: int) (props: IDictionary<string, obj>) =
+   let rec parseType (name: string) (props: IDictionary<string, obj>) =
       let typ =
          if name.StartsWith("ReqAnonymous")
          then ProvidedTypeDefinition(name, Some typeof<obj>)
@@ -69,20 +77,22 @@ type RequireProviderImpl(config: TypeProviderConfig) as this =
                   else typeof<obj>
                typ.AddMember(parseProp kv.Key t)
          | :? IDictionary<string, obj> as dic ->
-            let name, tcount = "ReqAnonymous" + (string tcount), tcount + 1
-            let typ' = if dic.ContainsKey("constructor") then parseConstructor name tcount dic else parseType name tcount dic
+            let instanceName = nextName()
+            let typ' = if dic.ContainsKey("constructor")
+                       then parseConstructor instanceName dic
+                       else parseType instanceName dic
             typ.AddMember typ'
-            this.AddNamespace(namespaceName, [typ'])
-            //typ.AddMember(parseProp kv.Key typ')
-         | _ as x -> failwith <| "Expected dictionary or string, but got: " + (string x.GetType)) 
+            //this.AddNamespace(namespaceName, [typ'])
+            typ.AddMember(parseProp kv.Key typ')
+         | _ as x -> failwith <| "Expected dictionary or string, but got: " + (string (x.GetType()))) 
       typ
 
-   and parseConstructor name (tcount: int) (dic: IDictionary<string, obj>) =
-      let instanceName, tcount = "ReqAnonymous" + (string tcount), tcount + 1
-      let instanceType = parseType instanceName tcount (dic.["instance"] :?> IDictionary<string, obj>)
-      let staticType = parseType name tcount (dic.["static"] :?> IDictionary<string, obj>)
-      //staticType.AddMember instanceType
-      this.AddNamespace(namespaceName, [instanceType])
+   and parseConstructor name (dic: IDictionary<string, obj>) =
+      let instanceName = nextName()
+      let instanceType = parseType instanceName (dic.["instance"] :?> IDictionary<string, obj>)
+      let staticType = parseType name (dic.["static"] :?> IDictionary<string, obj>)
+      staticType.AddMember instanceType
+      //this.AddNamespace(namespaceName, [instanceType])
       staticType.AddMember <| ProvidedMethod(
                                  methodName = "Create", 
                                  parameters = getArgs dic.["constructor"], 
@@ -102,12 +112,12 @@ type RequireProviderImpl(config: TypeProviderConfig) as this =
          |> Async.RunSynchronously
          |> function
             | :? IDictionary<string, obj> as res ->
-               let typ = if res.ContainsKey("constructor") then parseConstructor typeName 0 res else parseType typeName 0 res
+               let typ = if res.ContainsKey("constructor") then parseConstructor typeName res else parseType typeName res
                typ.AddMember <| ProvidedConstructor(
                                  parameters = [],
                                  InvokeCode = fun args -> <@@ Replacements.require(nodeModule) @@>)
                typ 
-            | _ as x -> failwith <| "Expected dictionary from Edge, but got: " + (string x.GetType)
+            | _ as x -> failwith <| "Expected dictionary from Edge, but got: " + (string(x.GetType()))
       | _ -> failwith "Unexpected parameter values")
 
    do this.AddNamespace(namespaceName, [reqType])

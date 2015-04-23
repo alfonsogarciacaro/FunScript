@@ -16,8 +16,8 @@ type internal CompiledType (cons: JSStatement, meths: Dictionary<int, string*JSS
    member __.Methods                   = meths
    member __.Interfaces                = infcs
    member __.Print(stream: TextWriter) =
-      stream.Write (cons.Print 0 Map.empty)
-      __.Methods    |> Seq.iter (fun x -> (snd x.Value).Print 0 Map.empty |> stream.Write)
+      stream.Write (cons.Print 0 (Dictionary<_,_>()))
+      __.Methods    |> Seq.iter (fun x -> (snd x.Value).Print 0 (Dictionary<_,_>()) |> stream.Write)
       __.Interfaces |> Seq.iter (fun x -> x.Value.Print(stream))
 
 type CompileOptions() =

@@ -1,11 +1,11 @@
 ﻿module internal FunScript.JSMapper
 
 open System.Web
-open System.Reflection
 open System.Collections.Generic
 open System.Text.RegularExpressions
-open Microsoft.FSharp.Reflection
-open Microsoft.FSharp.Quotations
+open Microsoft.FSharp.Compiler.SourceCodeServices
+
+type Var = FSharpMemberOrFunctionOrValue
 
 let private keywords =
    set [
@@ -83,26 +83,27 @@ let preventConflicts exists str =
       else check (n+1)
    check 0
 
-let mutable private cache = Dictionary<System.Type, string>()
+let mutable private cache = Dictionary<FSharpType, string>()
 let resetCache() = cache <- Dictionary<_,_>()
 
 let private sanitizeVarName =
    let regex = Regex "[^0-9a-zA-Z$_]"
-   fun (var: Quotations.Var) ->
-      let str = regex.Replace(var.Name, "_")
+   fun (var: Var) ->
+      let str = regex.Replace(var.CompiledName, "_")
       if unsafeWords.Contains str then "_" + str else str
 
-let mapVar scope var =
+let mapVar (scope: Dictionary<Var, string>) var =
    sanitizeVarName var
-   |> preventConflicts (fun x ->
-      scope |> Map.exists (fun _ x' -> x = x'))
-   |> fun name -> scope.Add(var, name), name
+   |> preventConflicts (fun x -> scope.ContainsValue x)
+   |> fun name ->
+      scope.Add(var, name)
+      scope, name
 
-let mapType (typ: System.Type) =
+let mapType (typ: FSharpType) =
    if cache.ContainsKey typ then cache.[typ]
    else
       let name =
-         HttpUtility.JavaScriptStringEncode typ.Name
+         HttpUtility.JavaScriptStringEncode typ.TypeDefinition.CompiledName
          |> fun x ->
             let i = x.IndexOf '`'
             if i >= 0 then x.Substring(0, i) else x

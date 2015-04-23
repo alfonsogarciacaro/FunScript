@@ -59,6 +59,7 @@ module internal PatternsExt =
          else None
       | _ -> None
 
+(*
 [<AutoOpen>]
 module internal ExprExt =
    type DebugInfo =
@@ -95,3 +96,23 @@ module internal ExprExt =
       member expr.With dinfo =
          setDebugInfo expr dinfo
          expr
+*)
+
+[<AutoOpen>]
+module internal FSharpExprExt =
+   open Microsoft.FSharp.Compiler
+   open Microsoft.FSharp.Compiler.SourceCodeServices
+
+   type DebugInfo =
+      { file: int; line: int; col: int }
+      static member Empty = { file=(-1); line=(-1); col=(-1) }
+
+   let private setDebugInfo (e: FSharpExpr) (dinfo: DebugInfo) =
+      let pos = Range.mkPos dinfo.line dinfo.col
+      // We're not interested in end position, make it same as beginning
+      let r = Range.mkFileIndexRange dinfo.file pos pos
+      typeof<FSharpExpr>.GetField("m", BindingFlags.All).SetValue(e, r)
+
+   type FSharpExpr with
+      member e.DebugInfo = { file=e.Range.FileIndex; line=e.Range.StartLine; col=e.Range.StartColumn}
+      member e.With dinfo = let e = setDebugInfo e dinfo in e
