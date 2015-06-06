@@ -1,16 +1,6 @@
-language: objective-c
+language: csharp
 
-env:
-  matrix:
-    - MONO_VERSION="3.2.5"
-
-install:
-  - wget "http://download.xamarin.com/MonoFrameworkMDK/Macx86/MonoFramework-MDK-${MONO_VERSION}.macos10.xamarin.x86.pkg"
-  - sudo installer -pkg "MonoFramework-MDK-${MONO_VERSION}.macos10.xamarin.x86.pkg" -target /
-  - mono --runtime=v4.0 ./NuGet/NuGet.exe install NUnit.Runners -Version 2.6.3 -OutputDirectory packages -ExcludeVersion
+sudo: false  # use the new container-based Travis infrastructure 
 
 script: 
-  - xbuild src/FunScript.sln /p:Configuration=Release
-  - xbuild src/FunScript.Libraries.sln /p:Configuration=Release
-  - mono --runtime=v4.0 packages/NUnit.Runners/tools/nunit-console.exe ./src/tests/FunScript.Tests/bin/Release/FunScript.Tests.dll
-
+  - ./build.sh All

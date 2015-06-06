@@ -1,208 +1,376 @@
-#r @"lib\Fake\FakeLib.dll"
+// --------------------------------------------------------------------------------------
+// FAKE build script
+// --------------------------------------------------------------------------------------
 
+#r @"packages/FAKE/tools/FakeLib.dll"
 open Fake
+open Fake.Git
 open Fake.AssemblyInfoFile
+open Fake.ReleaseNotesHelper
+open System
+open System.IO
+#if MONO
+#else
+#load "packages/SourceLink.Fake/tools/Fake.fsx"
+open SourceLink
+#endif
 
-let mainBuildDir = "./build/main/bin/"
-let mainPackageDir = "./build/main/deploy/"
+// --------------------------------------------------------------------------------------
+// START TODO: Provide project-specific details below
+// --------------------------------------------------------------------------------------
 
-let dataBuildDir = "./build/data/bin/"
-let dataPackageDir = "./build/data/deploy/"
+// Information about the project are used
+//  - for version and project name in generated AssemblyInfo file
+//  - by the generated NuGet package
+//  - to run tests and to publish documentation on GitHub gh-pages
+//  - for documentation, you also need to edit info in "docs/tools/generate.fsx"
 
-let rxBuildDir = "./build/rx/bin/"
-let rxPackageDir = "./build/rx/deploy/"
+// The name of the project
+// (used by attributes in AssemblyInfo, name of a NuGet package and directory in 'src')
+let project = "FunScript"
 
-let testBuildDir = "./build/tests/bin/"
+// Short summary of the project
+// (used as description in AssemblyInfo and as a short summary for NuGet package)
+let summary = "F# to JavaScript compiler"
 
-let dependenciesDir = "./src/packages/"
+// Longer description of the project
+// (used as a description for NuGet package; line breaks are automatically cleaned up)
+let description = "F# to EcmaScript 6 compiler"
 
-let versionNumber =
-    match buildServer with
-    | TeamCity -> buildVersion
-    | _ -> "0.0.0"
+// List of author names (for NuGet package)
+let authors = [ "Zack Bray, Alfonso Garcia-Caro" ]
 
-Target "Clean-Main" (fun _ ->
-    CleanDirs [mainBuildDir; mainPackageDir]
+// Tags for your project (for NuGet package)
+let tags = "funscript javascript fsharp compiler"
+
+// File system information 
+let solutionFile  = "FunScript.sln"
+
+// Pattern specifying assemblies to be tested using NUnit
+let testAssemblies = "tests/**/bin/Release/*Tests*.dll"
+
+// Git configuration (used for publishing documentation in gh-pages branch)
+// The profile where the project is posted
+let gitOwner = "fsprojects" 
+let gitHome = "https://github.com/" + gitOwner
+
+// The name of the project on GitHub
+let gitName = "FunScript"
+
+// The url for the raw files hosted
+let gitRaw = environVarOrDefault "gitRaw" "https://raw.github.com/fsprojects"
+
+// --------------------------------------------------------------------------------------
+// END TODO: The rest of the file includes standard build steps
+// --------------------------------------------------------------------------------------
+
+// Read additional information from the release notes document
+let release = LoadReleaseNotes "RELEASE_NOTES.md"
+
+// Helper active pattern for project types
+let (|Fsproj|Csproj|Vbproj|) (projFileName:string) = 
+    match projFileName with
+    | f when f.EndsWith("fsproj") -> Fsproj
+    | f when f.EndsWith("csproj") -> Csproj
+    | f when f.EndsWith("vbproj") -> Vbproj
+    | _                           -> failwith (sprintf "Project file %s not supported. Unknown project type." projFileName)
+
+// Generate assembly info files with the right version & up-to-date information
+Target "AssemblyInfo" (fun _ ->
+    let getAssemblyInfoAttributes projectName =
+        [ Attribute.Title (projectName)
+          Attribute.Product project
+          Attribute.Description summary
+          Attribute.Version release.AssemblyVersion
+          Attribute.FileVersion release.AssemblyVersion ]
+
+    let getProjectDetails projectPath =
+        let projectName = System.IO.Path.GetFileNameWithoutExtension(projectPath)
+        ( projectPath, 
+          projectName,
+          System.IO.Path.GetDirectoryName(projectPath),
+          (getAssemblyInfoAttributes projectName)
+        )
+
+    !! "src/**/*.??proj"
+    |> Seq.map getProjectDetails
+    |> Seq.iter (fun (projFileName, projectName, folderName, attributes) ->
+        match projFileName with
+        | Fsproj -> CreateFSharpAssemblyInfo (folderName @@ "AssemblyInfo.fs") attributes
+        | Csproj -> CreateCSharpAssemblyInfo ((folderName @@ "Properties") @@ "AssemblyInfo.cs") attributes
+        | Vbproj -> CreateVisualBasicAssemblyInfo ((folderName @@ "My Project") @@ "AssemblyInfo.vb") attributes
+        )
 )
 
-Target "Clean-Data" (fun _ ->
-    CleanDirs [dataBuildDir; dataPackageDir]
+// Copies binaries from default VS location to expected bin folder
+// But keeps a subdirectory structure for each project in the 
+// src folder to support multiple project outputs
+Target "CopyBinaries" (fun _ ->
+    !! "src/**/*.??proj"
+    |>  Seq.map (fun f -> ((System.IO.Path.GetDirectoryName f) @@ "bin/Release", "bin" @@ (System.IO.Path.GetFileNameWithoutExtension f)))
+    |>  Seq.iter (fun (fromDir, toDir) -> CopyDir toDir fromDir (fun _ -> true))
 )
 
-Target "Clean-Rx" (fun _ ->
-    CleanDirs [rxBuildDir; rxPackageDir]
+// --------------------------------------------------------------------------------------
+// Clean build results
+
+Target "Clean" (fun _ ->
+    CleanDirs ["bin"; "temp"]
 )
 
-Target "Clean-Test" (fun _ ->
-    CleanDirs [testBuildDir]
+Target "CleanDocs" (fun _ ->
+    CleanDirs ["docs/output"]
 )
 
-let baseAttributes = [
-    Attribute.Product "FunScript"
-    Attribute.Company "Type Inferred Ltd."
-    Attribute.Copyright "Copyright © 2012-2014 Type Inferred Ltd."
-    Attribute.Version versionNumber
-    Attribute.FileVersion versionNumber
-]
+// --------------------------------------------------------------------------------------
+// Build library & test project
 
-Target "Build-Main" (fun () ->
+Target "Build" (fun _ ->
+    !! solutionFile
+    |> MSBuildRelease "" "Rebuild"
+    |> ignore
+)
 
-    CreateFSharpAssemblyInfo "src/main/AssemblyInfo.fs" 
-        [
-            yield Attribute.Title "TypeInferred.FunScript"
-            yield Attribute.Description "An F# to JavaScript Compiler - FunScript"
-            yield Attribute.Guid "ABBDBFC5-F6F0-4BB7-89D8-9FE9D105C613"
-            yield! baseAttributes
-        ]
+// --------------------------------------------------------------------------------------
+// Run the unit tests using test runner
 
-    let projectFiles = !! "src/main/*.fsproj"
+Target "RunTests" (fun _ ->
+    !! testAssemblies
+    |> NUnit (fun p ->
+        { p with
+            DisableShadowCopy = true
+            TimeOut = TimeSpan.FromMinutes 20.
+            OutputFile = "TestResults.xml" })
+)
+
+#if MONO
+#else
+// --------------------------------------------------------------------------------------
+// SourceLink allows Source Indexing on the PDB generated by the compiler, this allows
+// the ability to step through the source code of external libraries https://github.com/ctaggart/SourceLink
+
+Target "SourceLink" (fun _ ->
+    let baseUrl = sprintf "%s/%s/{0}/%%var2%%" gitRaw (project.ToLower())
+    use repo = new GitRepo(__SOURCE_DIRECTORY__)
     
-    Log "Build-Main-Projects: " projectFiles
-
-    MSBuildRelease mainBuildDir "Build" projectFiles
-    |> Log "Build-Main-Output: "
-)
-
-Target "Build-Data" (fun () ->
-    
-    RestorePackages()
-    CopyDir dependenciesDir "../../packages/" (fun _ -> true)
-
-    CreateFSharpAssemblyInfo "src/extra/FunScript.Data/AssemblyInfo.fs" 
-        [
-            yield Attribute.Title "TypeInferred.FunScript.Data"
-            yield Attribute.Description "FSharp.Data Interop Library - FunScript"
-            yield Attribute.Guid "38933DD8-EF70-4861-A6CB-E2EA0C4CAE73"
-            yield! baseAttributes
-        ]
+    let addAssemblyInfo (projFileName:String) = 
+        match projFileName with
+        | Fsproj -> (projFileName, "**/AssemblyInfo.fs")
+        | Csproj -> (projFileName, "**/AssemblyInfo.cs")
+        | Vbproj -> (projFileName, "**/AssemblyInfo.vb")
         
-    let projectFiles = !! "src/extra/FunScript.Data/*.fsproj"
-    
-    Log "Build-Data-Projects: " projectFiles
-
-    MSBuildRelease dataBuildDir "Build" projectFiles
-    |> Log "Build-Data-Output: "
+    !! "src/**/*.??proj"
+    |> Seq.map addAssemblyInfo
+    |> Seq.iter (fun (projFile, assemblyInfo) ->
+        let proj = VsProj.LoadRelease projFile 
+        logfn "source linking %s" proj.OutputFilePdb
+        let files = proj.CompilesNotLinked -- assemblyInfo
+        repo.VerifyChecksums files
+        proj.VerifyPdbChecksums files
+        proj.CreateSrcSrv baseUrl repo.Commit (repo.Paths files)
+        Pdbstr.exec proj.OutputFilePdb proj.OutputFilePdbSrcSrv
+    )
 )
 
-Target "Build-Rx" (fun () ->
-    
-    RestorePackages()
-    CopyDir dependenciesDir "../../packages/" (fun _ -> true)
+#endif
 
-    CreateFSharpAssemblyInfo "src/extra/FunScript.Rx/AssemblyInfo.fs" 
-        [
-            yield Attribute.Title "TypeInferred.FunScript.Rx"
-            yield Attribute.Description "Rx Interop Library - FunScript"
-            yield Attribute.Guid "891C8111-4D9D-45CD-8A8D-77EB817FF8E1"
-            yield! baseAttributes
-        ]
-        
-    let projectFiles = !! "src/extra/FunScript.Rx/*.fsproj"
-    
-    Log "Build-Rx-Projects: " projectFiles
+// --------------------------------------------------------------------------------------
+// Build a NuGet package
 
-    MSBuildRelease rxBuildDir "Build" projectFiles
-    |> Log "Build-Rx-Output: "
+Target "NuGet" (fun _ ->
+    Paket.Pack(fun p -> 
+        { p with
+            OutputPath = "bin"
+            Version = release.NugetVersion
+            ReleaseNotes = toLines release.Notes})
 )
 
-Target "Build-Test" (fun () ->
-
-    let projectFiles = !! "src/tests/**/*.fsproj"
-    
-    Log "Build-Test-Projects: " projectFiles
-
-    MSBuildRelease testBuildDir "Build" projectFiles
-    |> Log "Build-Test-Output: "
+Target "PublishNuget" (fun _ ->
+    Paket.Push(fun p -> 
+        { p with
+            WorkingDir = "bin" })
 )
 
-Target "Run-Test" (fun () ->
-    let targetDlls = !! (testBuildDir + "/*.Tests.dll")
-    
-    targetDlls |> NUnit (fun p -> 
-        { p with 
-            DisableShadowCopy = true 
-            OutputFile = "TestResult.xml"
-            ToolPath = "lib/NUnit"
-        })
+
+// --------------------------------------------------------------------------------------
+// Generate the documentation
+
+Target "GenerateReferenceDocs" (fun _ ->
+    if not <| executeFSIWithArgs "docs/tools" "generate.fsx" ["--define:RELEASE"; "--define:REFERENCE"] [] then
+      failwith "generating reference documentation failed"
 )
 
-Target "Create-Package-Main" (fun () ->
-    let hasNugetKey = hasBuildParam "nuget_key"
-    tracefn "Publish-Package-Main: %b" hasNugetKey
-    
-    NuGet(fun p ->
-        {p with
-            Authors = ["Zach Bray"; "Tomas Petricek"]
-            Project = "FunScript"
-            Summary = "An F# to JavaScript compiler."
-            Description = "An F# to JavaScript compiler."
-            Copyright = "Copyright © 2012-2014 Type Inferred Ltd."
-            WorkingDir = mainBuildDir
-            OutputPath = mainPackageDir
-            Version = versionNumber
-            AccessKey = getBuildParamOrDefault "nuget_key" ""
-            Publish = hasNugetKey
-        }) "build/template.nuspec"
+let generateHelp' fail debug =
+    let args =
+        if debug then ["--define:HELP"]
+        else ["--define:RELEASE"; "--define:HELP"]
+    if executeFSIWithArgs "docs/tools" "generate.fsx" args [] then
+        traceImportant "Help generated"
+    else
+        if fail then
+            failwith "generating help documentation failed"
+        else
+            traceImportant "generating help documentation failed"
+
+let generateHelp fail =
+    generateHelp' fail false
+
+Target "GenerateHelp" (fun _ ->
+    DeleteFile "docs/content/release-notes.md"
+    CopyFile "docs/content/" "RELEASE_NOTES.md"
+    Rename "docs/content/release-notes.md" "docs/content/RELEASE_NOTES.md"
+
+    DeleteFile "docs/content/license.md"
+    CopyFile "docs/content/" "LICENSE.txt"
+    Rename "docs/content/license.md" "docs/content/LICENSE.txt"
+
+    generateHelp true
 )
 
-Target "Create-Package-Data" (fun () ->
-    let hasNugetKey = hasBuildParam "nuget_key"
-    tracefn "Publish-Package-Main: %b" hasNugetKey
-    
-    NuGet(fun p ->
-        {p with
-            Authors = ["Tomas Petricek"]
-            Project = "FunScript.Data"
-            Summary = "FSharp.Data Type Providers Interop for FunScript."
-            Description = "FSharp.Data Type Providers Interop for FunScript."
-            Copyright = "Copyright © 2012-2014 Type Inferred Ltd."
-            WorkingDir = dataBuildDir
-            OutputPath = dataPackageDir
-            Version = versionNumber
-            AccessKey = getBuildParamOrDefault "nuget_key" ""
-            Publish = hasNugetKey
-            Dependencies = 
-            [
-                "FunScript", sprintf "[%s]" versionNumber
-                "FSharp.Data", "[2.0.9]"
-                "ApiaryProvider", "[1.0.2]"
-            ]
-        }) "build/data-template.nuspec"
+Target "GenerateHelpDebug" (fun _ ->
+    DeleteFile "docs/content/release-notes.md"
+    CopyFile "docs/content/" "RELEASE_NOTES.md"
+    Rename "docs/content/release-notes.md" "docs/content/RELEASE_NOTES.md"
+
+    DeleteFile "docs/content/license.md"
+    CopyFile "docs/content/" "LICENSE.txt"
+    Rename "docs/content/license.md" "docs/content/LICENSE.txt"
+
+    generateHelp' true true
 )
 
-Target "Create-Package-Rx" (fun () ->
-    let hasNugetKey = hasBuildParam "nuget_key"
-    tracefn "Publish-Package-Rx: %b" hasNugetKey
-    
-    NuGet(fun p ->
-        {p with
-            Authors = ["Zach Bray"]
-            Project = "FunScript.Rx"
-            Summary = "Rx interop. for FunScript."
-            Description = "Rx interop. for FunScript."
-            Copyright = "Copyright © 2012-2014 Type Inferred Ltd."
-            WorkingDir = rxBuildDir
-            OutputPath = rxPackageDir
-            Version = versionNumber
-            AccessKey = getBuildParamOrDefault "nuget_key" ""
-            Publish = hasNugetKey
-            Dependencies = 
-            [
-                "FunScript", sprintf "[%s]" versionNumber
-                "FSharp.Control.Reactive", "[2.4.0]"
-            ]
-        }) "build/rx-template.nuspec"
+Target "KeepRunning" (fun _ ->    
+    use watcher = new FileSystemWatcher(DirectoryInfo("docs/content").FullName,"*.*")
+    watcher.EnableRaisingEvents <- true
+    watcher.Changed.Add(fun e -> generateHelp false)
+    watcher.Created.Add(fun e -> generateHelp false)
+    watcher.Renamed.Add(fun e -> generateHelp false)
+    watcher.Deleted.Add(fun e -> generateHelp false)
+
+    traceImportant "Waiting for help edits. Press any key to stop."
+
+    System.Console.ReadKey() |> ignore
+
+    watcher.EnableRaisingEvents <- false
+    watcher.Dispose()
 )
 
-Target "Release" DoNothing
+Target "GenerateDocs" DoNothing
 
-"Clean-Main" ==> "Build-Main" ==> "Create-Package-Main" ==> "Release"
-"Build-Main" ==> "Build-Data"
-"Clean-Data" ==> "Build-Data" ==> "Create-Package-Data" ==> "Release"
-"Build-Main" ==> "Build-Rx"
-"Clean-Rx" ==> "Build-Rx" ==> "Create-Package-Rx" ==> "Release"
-"Build-Main" ==> "Build-Rx" ==> "Build-Test"
-"Clean-Test" ==> "Build-Test" ==> "Run-Test"
-"Run-Test" ==> "Create-Package-Main"
+let createIndexFsx lang =
+    let content = """(*** hide ***)
+// This block of code is omitted in the generated HTML documentation. Use 
+// it to define helpers that you do not want to show in the documentation.
+#I "../../../bin"
 
-RunTargetOrDefault "Release"
+(**
+F# Project Scaffold ({0})
+=========================
+*)
+"""
+    let targetDir = "docs/content" @@ lang
+    let targetFile = targetDir @@ "index.fsx"
+    ensureDirectory targetDir
+    System.IO.File.WriteAllText(targetFile, System.String.Format(content, lang))
+
+Target "AddLangDocs" (fun _ ->
+    let args = System.Environment.GetCommandLineArgs()
+    if args.Length < 4 then
+        failwith "Language not specified."
+
+    args.[3..]
+    |> Seq.iter (fun lang ->
+        if lang.Length <> 2 && lang.Length <> 3 then
+            failwithf "Language must be 2 or 3 characters (ex. 'de', 'fr', 'ja', 'gsw', etc.): %s" lang
+
+        let templateFileName = "template.cshtml"
+        let templateDir = "docs/tools/templates"
+        let langTemplateDir = templateDir @@ lang
+        let langTemplateFileName = langTemplateDir @@ templateFileName
+
+        if System.IO.File.Exists(langTemplateFileName) then
+            failwithf "Documents for specified language '%s' have already been added." lang
+
+        ensureDirectory langTemplateDir
+        Copy langTemplateDir [ templateDir @@ templateFileName ]
+
+        createIndexFsx lang)
+)
+
+// --------------------------------------------------------------------------------------
+// Release Scripts
+
+Target "ReleaseDocs" (fun _ ->
+    let tempDocsDir = "temp/gh-pages"
+    CleanDir tempDocsDir
+    Repository.cloneSingleBranch "" (gitHome + "/" + gitName + ".git") "gh-pages" tempDocsDir
+
+    CopyRecursive "docs/output" tempDocsDir true |> tracefn "%A"
+    StageAll tempDocsDir
+    Git.Commit.Commit tempDocsDir (sprintf "Update generated documentation for version %s" release.NugetVersion)
+    Branches.push tempDocsDir
+)
+
+#load "paket-files/fsharp/FAKE/modules/Octokit/Octokit.fsx"
+open Octokit
+
+Target "Release" (fun _ ->
+    StageAll ""
+    Git.Commit.Commit "" (sprintf "Bump version to %s" release.NugetVersion)
+    Branches.push ""
+
+    Branches.tag "" release.NugetVersion
+    Branches.pushTag "" "origin" release.NugetVersion
+    
+    // release on github
+    createClient (getBuildParamOrDefault "github-user" "") (getBuildParamOrDefault "github-pw" "")
+    |> createDraft gitOwner gitName release.NugetVersion (release.SemVer.PreRelease <> None) release.Notes 
+    // TODO: |> uploadFile "PATH_TO_FILE"    
+    |> releaseDraft
+    |> Async.RunSynchronously
+)
+
+Target "BuildPackage" DoNothing
+
+// --------------------------------------------------------------------------------------
+// Run all targets by default. Invoke 'build <Target>' to override
+
+Target "All" DoNothing
+
+"Clean"
+  ==> "AssemblyInfo"
+  ==> "Build"
+  ==> "CopyBinaries"
+  ==> "RunTests"
+  ==> "GenerateReferenceDocs"
+  ==> "GenerateDocs"
+  ==> "All"
+  =?> ("ReleaseDocs",isLocalBuild)
+
+"All" 
+#if MONO
+#else
+  =?> ("SourceLink", Pdbstr.tryFind().IsSome )
+#endif
+  ==> "NuGet"
+  ==> "BuildPackage"
+
+"CleanDocs"
+  ==> "GenerateHelp"
+  ==> "GenerateReferenceDocs"
+  ==> "GenerateDocs"
+
+"CleanDocs"
+  ==> "GenerateHelpDebug"
+
+"GenerateHelp"
+  ==> "KeepRunning"
+    
+"ReleaseDocs"
+  ==> "Release"
+
+"BuildPackage"
+  ==> "PublishNuget"
+  ==> "Release"
+
+RunTargetOrDefault "All"
