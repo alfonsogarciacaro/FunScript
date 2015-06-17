@@ -32,11 +32,16 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "content", "content", "{8E6D
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{ED8079DD-2B06-4030-9F0F-DC548F98E1C4}"
+	ProjectSection(SolutionItems) = preProject
+		Features_to_test.txt = Features_to_test.txt
+	EndProjectSection
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FunScript.Tests", "tests\FunScript.Tests\FunScript.Tests.fsproj", "{9DEAF6D9-4987-4729-AF1A-12A397DEB099}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "scripts", "scripts", "{073F4995-1BCA-4226-A876-6677106C8E68}"
 	ProjectSection(SolutionItems) = preProject
+		scripts\File1.fs = scripts\File1.fs
+		scripts\File2.fs = scripts\File2.fs
 		scripts\test.fsx = scripts\test.fsx
 	EndProjectSection
 EndProject

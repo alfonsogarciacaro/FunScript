@@ -8,4 +8,4 @@ open System.IO
 
 Path.Combine(__SOURCE_DIRECTORY__, "../../scripts/test.fsx")
 |> Library.parseAndCheckScript
-|> Library.visitFiles
+|> Library.visitFiles'

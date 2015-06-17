@@ -1,8 +1,9 @@
-﻿module Pepin2
+﻿module TestNs.Pepin2
 
 #load "File1.fs"
+#load "File2.fs"
 
-let private f x y = x + y
+let t = TestNs.Test1()
 
 //module Francisco =
 //  let e = 4
