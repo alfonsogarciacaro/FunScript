@@ -1,0 +1,15 @@
+// Warning: generated file; your changes could be lost when a new file is generated.
+#I __SOURCE_DIRECTORY__
+#load @"load-references.fsx"
+#load @"..\Attributes.fs"
+      @"..\Expressions\Comparisons.fs"
+      @"..\Expressions\ControlFlow.fs"
+      @"..\Expressions\Conversions.fs"
+      @"..\Expressions\GetSet.fs"
+      @"..\Expressions\Helpers.fs"
+      @"..\Expressions\JSMapper.fs"
+      @"..\Expressions\AST.fs"
+      @"..\Expressions\Applications.fs"
+      @"..\Expressions\LetBindings.fs"
+      @"..\Expressions\PrimitiveTypes.fs"
+      @"..\Library.fs"

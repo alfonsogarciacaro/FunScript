@@ -3,7 +3,7 @@
 //type Test2() =
 //  member __.Adiós = 5
 
-module Test
+module MyNamespace.Test45
 let a = 4
 
 //module Test4

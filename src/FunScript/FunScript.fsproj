@@ -9,8 +9,8 @@
     <OutputType>Library</OutputType>
     <RootNamespace>FunScript</RootNamespace>
     <AssemblyName>FunScript</AssemblyName>
-    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
-    <TargetFSharpCoreVersion>4.3.0.0</TargetFSharpCoreVersion>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <TargetFSharpCoreVersion>4.4.0.0</TargetFSharpCoreVersion>
     <Name>FunScript</Name>
     <TargetFrameworkProfile />
   </PropertyGroup>
@@ -43,12 +43,26 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
+    <Reference Include="System.Web" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Attributes.fs" />
+    <Compile Include="Expressions\Helpers.fs" />
+    <Compile Include="Expressions\JSMapper.fs" />
+    <Compile Include="Expressions\AST.fs" />
+    <Compile Include="Expressions\Applications.fs" />
+    <Compile Include="Expressions\Comparisons.fs" />
+    <Compile Include="Expressions\ControlFlow.fs" />
+    <Compile Include="Expressions\Conversions.fs" />
+    <Compile Include="Expressions\GetSet.fs" />
+    <Compile Include="Expressions\LetBindings.fs" />
+    <Compile Include="Expressions\PrimitiveTypes.fs" />
     <Compile Include="Library.fs" />
-    <None Include="Script.fsx" />
     <None Include="paket.references" />
     <None Include="paket.template" />
+    <None Include="Scripts\load-references.fsx" />
+    <None Include="Scripts\load-project.fsx" />
+    <None Include="Scripts\Script.fsx" />
   </ItemGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>
