@@ -3,24 +3,32 @@
 open AST
 open Microsoft.FSharp.Compiler.SourceCodeServices.BasicPatterns
 
-let private decisionTree com _ = function
+let private decisionTree com ret = function
   | DecisionTree(e, branches) ->
     let rec reduce e branches =
         match branches with
         | [] -> failwith "Caught empty branches when pattern-matching a DecisionTree"
         | [(_, branch); (_, last)] -> failwith "never"
-        | (_, branch)::branches ->
+        | (_, CompileStatement com ret branch)::branches ->
           match e with
-          | IfThenElse(cond, DecisionTreeSuccess(i1, args), e) ->
+          | IfThenElse(CompileExpr com cond, DecisionTreeSuccess(_, args), e) ->
               match args with
-              | [] -> AdHoc(AdHocIf(imp cond, imp branch, reduce e branches))
+//              | [] -> AdHoc(AdHocIf(imp cond, imp branch, reduce e branches))
+              | [] -> IfThenElse(e.Range, cond, branch, reduce e branches)
               | _ -> failwith "Caught DecisionTreeSuccess with non-empty args"
           | _ -> failwith "Caught DecisionTree with condition different than IfThenElse"
-    match reduce e branches with
-    | AdHoc(AdHocIf(cond, trueBranch, falseBranch)) -> Some(cond, trueBranch, falseBranch)
-    | _ -> failwith "Unexpected"
+    buildStatement <| reduce e branches
   | _ -> None
 
+let private coertion (com: ICompiler) ret = function
+  | ILAsm(_,_,values) ->
+    match values with
+    | [value] -> buildExpr (com.CompileExpr value)
+    | _ -> failwith "Unexpected"
+    args |> List.map com.CompileExpr |> 
+  | Let((coerced, Coerce(_, source)), letBody) ->
+    buildStatement <| ForOfLoop(e.Range, var, iterable, body)
+  | _ -> None
 
 let private controlFlow com ret = function
   | Let((_, Call(Some (CompileExpr com iterable), getEnum,_,_,_)),
@@ -59,4 +67,3 @@ let private controlFlow com ret = function
 let components: CompilerComponent list = [ 
    controlFlow
 ]
-

@@ -2,6 +2,7 @@
 
 open JSMapper
 open Microsoft.FSharp.Compiler
+open Microsoft.FSharp.Compiler.Ast
 open Microsoft.FSharp.Compiler.SourceCodeServices
 
 type FSRef = FSharpMemberOrFunctionOrValue
@@ -15,6 +16,7 @@ type JSExpr =
    | Integer of int
    | String of string
    | Var of FSRef
+   | Paren of JSExpr
    /// Do not use this constructor directly. Call ICompiler.RefType instead.
    | Type of FSharpType
    | Object of (string * JSExpr) list
@@ -221,18 +223,22 @@ type ReturnStrategy =
       | Inplace -> Do(dinfo, e)
       | ReturnFrom -> Return(dinfo, e)
 
+type ICompileInfo = interface end
+
 type ICompiler =
    abstract member TypeMappings: Map<string, FSharpType>
 
-   abstract member CompileExpr: FSharpExpr -> JSExpr
-   abstract member CompileCall: FSharpExpr -> FSharpExpr list -> JSExpr
-   abstract member CompileStatement: ReturnStrategy -> FSharpExpr -> JSStatement
+   abstract member CompileExpr: ICompileInfo -> SynExpr -> JSExpr
+//   abstract member CompileCall: FSharpExpr -> FSharpExpr list -> JSExpr
+   abstract member CompileStatement: ICompileInfo -> SynExpr -> JSStatement
 
    abstract member RefType: FSharpEntity -> JSExpr
    abstract member RefCase: FSharpUnionCase -> JSExpr
    abstract member RefMethod: FSharpMemberOrFunctionOrValue * JSExpr option -> JSExpr
 
-   abstract member AddInterface: impl:FSharpType * infc:FSharpType -> unit
+//   abstract member AddInterface: impl:FSharpType * infc:FSharpType -> unit
+   abstract member AddReplacement: repl:FSRef -> ICompiler
+   abstract member ReplaceIfNeeded: repl:FSRef -> FSRef
 
 type CompilerComponent = ICompiler -> ReturnStrategy -> FSharpExpr -> JSInstruction option
 
