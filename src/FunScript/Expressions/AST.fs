@@ -5,7 +5,7 @@ open Microsoft.FSharp.Compiler
 open Microsoft.FSharp.Compiler.Ast
 open Microsoft.FSharp.Compiler.SourceCodeServices
 
-type FSRef = FSharpMemberOrFunctionOrValue
+type FSVal = FSharpMemberOrFunctionOrValue
 type Range = Range.range
 
 type JSExpr =
@@ -15,8 +15,9 @@ type JSExpr =
    | Number of float
    | Integer of int
    | String of string
-   | Var of FSRef
-   | Paren of JSExpr
+   | Var of FSVal
+   | Super
+   | This
    /// Do not use this constructor directly. Call ICompiler.RefType instead.
    | Type of FSharpType
    | Object of (string * JSExpr) list
@@ -24,12 +25,12 @@ type JSExpr =
    | Array of JSExpr list
    | Apply of JSExpr * JSExpr list
    | New of JSExpr * JSExpr list
-   | Lambda of FSRef list * JSStatement
+   | Lambda of args: FSVal list * body: JSInstruction * isGenerator: bool
    | UnaryOp of string * JSExpr
    | BinaryOp of JSExpr * string * JSExpr
    | EmitExpr of string * JSExpr list
 
-   member value.Print pad (scope: System.Collections.Generic.Dictionary<FSRef,string>) =
+   member value.Print pad (scope: System.Collections.Generic.Dictionary<FSVal,string>) =
       let sp = getSpace()
       let printArgs (args: JSExpr list) =
          args |> List.map (fun a -> a.Print pad scope) |> String.concat ("," + sp)
@@ -126,20 +127,20 @@ and JSStatement =
    // No DebugInfo
    | Empty
    | Sequential of JSStatement * JSStatement
-   | TryCatch of JSStatement * FSRef * JSStatement
+   | TryCatch of JSStatement * FSVal * JSStatement
    | TryFinally of JSStatement * JSStatement
-   | TryCatchFinally of JSStatement * FSRef * JSStatement * JSStatement
+   | TryCatchFinally of JSStatement * FSVal * JSStatement * JSStatement
 
    // DebugInfo
    | Do of Range * JSExpr
    | Return of Range * JSExpr
    | Throw of Range * JSExpr
    | Assign of Range * JSExpr * JSExpr
-   | Let of Range * FSRef * JSExpr * JSStatement
+   | Let of Range * FSVal * JSExpr * JSStatement
    | IfThenElse of Range * JSExpr * JSStatement * JSStatement
    | WhileLoop of Range * JSExpr * JSStatement
-   | ForIntegerLoop of Range * var: FSRef * beginning: JSExpr * ending: JSExpr * body: JSStatement * isUp: bool
-   | ForOfLoop of Range * var: FSRef * iterable: JSExpr * body: JSStatement
+   | ForIntegerLoop of Range * var: FSVal * beginning: JSExpr * ending: JSExpr * body: JSStatement * isUp: bool
+   | ForOfLoop of Range * var: FSVal * iterable: JSExpr * body: JSStatement
    member statement.Print pad scope =
       let sp, newL, newL' = getSpace(), getNewline pad, getNewline (pad + 1)
       match statement with
@@ -211,7 +212,7 @@ and JSStatement =
             name (toExpr.Print pad scope) name
             sp newL' (block.Print (pad + 1) newScope) newL
 
-type JSInstruction =
+and JSInstruction =
    | Expr of JSExpr
    | Statement of JSStatement
 
@@ -223,22 +224,23 @@ type ReturnStrategy =
       | Inplace -> Do(dinfo, e)
       | ReturnFrom -> Return(dinfo, e)
 
-type ICompileInfo = interface end
+type IScopeInfo =
+  abstract member ReplaceIfNeeded: FSVal -> FSVal
 
 type ICompiler =
    abstract member TypeMappings: Map<string, FSharpType>
 
-   abstract member CompileExpr: ICompileInfo -> SynExpr -> JSExpr
-//   abstract member CompileCall: FSharpExpr -> FSharpExpr list -> JSExpr
-   abstract member CompileStatement: ICompileInfo -> SynExpr -> JSStatement
+   abstract member CompileCall: IScopeInfo -> FSharpExpr option -> FSVal -> FSharpExpr list -> JSExpr
+   abstract member CompileExpr: IScopeInfo -> FSharpExpr -> JSExpr
+   abstract member CompileStatement: IScopeInfo -> FSharpExpr -> JSStatement
 
    abstract member RefType: FSharpEntity -> JSExpr
    abstract member RefCase: FSharpUnionCase -> JSExpr
    abstract member RefMethod: FSharpMemberOrFunctionOrValue * JSExpr option -> JSExpr
 
 //   abstract member AddInterface: impl:FSharpType * infc:FSharpType -> unit
-   abstract member AddReplacement: repl:FSRef -> ICompiler
-   abstract member ReplaceIfNeeded: repl:FSRef -> FSRef
+   abstract member AddReplacement: repl:FSVal -> ICompiler
+   abstract member ReplaceIfNeeded: repl:FSVal -> FSVal
 
 type CompilerComponent = ICompiler -> ReturnStrategy -> FSharpExpr -> JSInstruction option
 

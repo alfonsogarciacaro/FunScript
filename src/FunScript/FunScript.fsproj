@@ -56,11 +56,13 @@
     <Compile Include="Expressions\GetSet.fs" />
     <Compile Include="Expressions\LetBindings.fs" />
     <Compile Include="Expressions\PrimitiveTypes.fs" />
+    <Compile Include="Expressions\ComputationExpressions.fs" />
     <Compile Include="Expressions\SynExpr.fs" />
     <Compile Include="Expressions\Applications.fs" />
     <Compile Include="Library.fs" />
     <None Include="paket.references" />
     <None Include="paket.template" />
+    <None Include="Scripts\ExprViewer.fsx" />
     <None Include="Scripts\load-references.fsx" />
     <None Include="Scripts\load-project.fsx" />
     <None Include="Scripts\Script.fsx" />

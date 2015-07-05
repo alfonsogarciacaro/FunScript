@@ -59,9 +59,9 @@ let compileMethod (com: ICompiler) (meth: MethodBase) (methRef: JSExpr) =
 *)
 
 let private pipes (com: ICompiler) (ret: ReturnStrategy) (expr: FSharpExpr) =
-  let replaceVars varExprs (lambdaVars: FSRef list) valExprs =
+  let replaceVars varExprs (lambdaVars: FSVal list) valExprs =
     let isNonFreeVar var =
-      List.exists (fun (v: FSRef) -> v.IsEffectivelySameAs var) lambdaVars
+      List.exists (fun (v: FSVal) -> v.IsEffectivelySameAs var) lambdaVars
     let rec replaceVars varExprs valExprs acc =
       match varExprs with
       | [] -> 
