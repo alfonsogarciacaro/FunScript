@@ -7,6 +7,7 @@ open Microsoft.FSharp.Compiler.SourceCodeServices
 
 type FSVal = FSharpMemberOrFunctionOrValue
 type Range = Range.range
+type Dictionary<'k,'v> = System.Collections.Generic.Dictionary<'k,'v>
 
 type JSExpr =
    | Null
@@ -224,19 +225,27 @@ type ReturnStrategy =
       | Inplace -> Do(dinfo, e)
       | ReturnFrom -> Return(dinfo, e)
 
+type IMappings =
+  abstract member Fields: Dictionary<FSharpField, string>
+  abstract member Methods: Dictionary<FSVal, string>
+
 type IScopeInfo =
   abstract member ReplaceIfNeeded: FSVal -> FSVal
 
 type ICompiler =
-   abstract member TypeMappings: Map<string, FSharpType>
+   abstract member GetMappings: FSharpEntity -> IMappings
 
    abstract member CompileCall: IScopeInfo -> FSharpExpr option -> FSVal -> FSharpExpr list -> JSExpr
    abstract member CompileExpr: IScopeInfo -> FSharpExpr -> JSExpr
    abstract member CompileStatement: IScopeInfo -> FSharpExpr -> JSStatement
 
-   abstract member RefType: FSharpEntity -> JSExpr
    abstract member RefCase: FSharpUnionCase -> JSExpr
-   abstract member RefMethod: FSharpMemberOrFunctionOrValue * JSExpr option -> JSExpr
+   
+   // TODO: Check imports
+   abstract member RefType: FSharpEntity -> JSExpr
+
+   // TODO: Watch overloads
+   abstract member RefMethod: JSExpr option -> FSharpMemberOrFunctionOrValue -> JSExpr
 
 //   abstract member AddInterface: impl:FSharpType * infc:FSharpType -> unit
    abstract member AddReplacement: repl:FSVal -> ICompiler

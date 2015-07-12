@@ -70,7 +70,7 @@ let rec visit (e:FSharpExpr) preffix =
       | _ -> printfn "%s%s.%s" preffix f.EnclosingEntity.FullName f.DisplayName
     | BasicPatterns.Call(objExprOpt, memberOrFunc, typeArgs1, typeArgs2, args) ->
       match objExprOpt with
-      | Some (BasicPatterns.Value(v)) -> printfn "%s%s.%s(%s)" preffix v.CompiledName memberOrFunc.CompiledName (printArgs args)
+      | Some v -> printfn "%s%s.%s(%s)" preffix (printVal v) memberOrFunc.CompiledName (printArgs args)
       | _ -> printfn "%s%s(%s)" preffix memberOrFunc.FullName (printArgs args)
     | BasicPatterns.IfThenElse (guardExpr, thenExpr, elseExpr) ->
         printfn "%sIF" preffix
@@ -97,8 +97,8 @@ let rec visit (e:FSharpExpr) preffix =
           visit e (preffix + "  "))
     | BasicPatterns.DecisionTreeSuccess (decisionTargetIdx, decisionTargetExprs) ->
         printfn "%sGOTO BRANCH %i [%s]" preffix decisionTargetIdx (printArgs decisionTargetExprs)
-    | BasicPatterns.Const(o, _) ->
-        printfn "%sCONST %O" preffix o
+    | BasicPatterns.Const(o, t) ->
+        printfn "%sCONST %O" preffix o //t.AbbreviatedType.TypeDefinition.FullName
     | BasicPatterns.Value(v) ->
 //        printfn "%sVAL %s" preffix v.FullType.TypeDefinition.DisplayName
         printfn "%sVAL %s" preffix v.CompiledName
@@ -116,54 +116,130 @@ let rec visit (e:FSharpExpr) preffix =
     | BasicPatterns.Lambda(v, expr) -> printfn "%s%s -> %s" preffix v.CompiledName (printVal expr)
     | _ -> failwith (sprintf "unrecognized %+A" e)
 
+let checkProject input =
+  let checkProjectResults = parseAndCheckSingleFile input
+  if checkProjectResults.HasCriticalErrors then
+    failwithf "ERROR: %A" checkProjectResults.Errors
+  checkProjectResults
+
 let getExpr exprIndex input = 
   let checkProjectResults = parseAndCheckSingleFile input
-  if checkProjectResults.Errors.Length > 0 then
+//  checkProjectResults.GetAllUsesOfAllSymbols() |> Async.RunSynchronously
+//  |> Seq.iter (fun s -> printfn "Symbol %A" s)
+
+//  checkProjectResults.ProjectContext.GetReferencedAssemblies()
+//  |> Seq.iter (fun x ->
+//    printfn "Assembly %A" x.SimpleName
+//    x.Contents.Entities
+//    |> Seq.iter (fun e ->
+//      try
+//        ignore e.AbbreviatedType.TypeDefinition.FullName
+//      with
+//      | _ -> printfn "%A is not abbreviated" e))
+  if checkProjectResults.HasCriticalErrors then
     failwithf "ERROR: %A" checkProjectResults.Errors
+//  for ent in checkProjectResults.AssemblySignature.Entities do
+//    for sub in ent.NestedEntities do
+//      printfn "%A" sub
   let checkedFile = checkProjectResults.AssemblyContents.ImplementationFiles.[0]
   let myLibraryEntity, myLibraryDecls =    
       match checkedFile.Declarations.[0] with 
       | FSharpImplementationFileDeclaration.Entity (e, subDecls) -> (e, subDecls)
       | _ -> failwith "unexpected"
   match myLibraryDecls.[exprIndex] with 
-  | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(_,_, e) -> e
+  | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(m,_, e) -> e
   | FSharpImplementationFileDeclaration.InitAction e -> e
-  | FSharpImplementationFileDeclaration.Entity(e,_) -> failwithf "Entity detected: %s" e.FullName
+  | FSharpImplementationFileDeclaration.Entity(e,_) -> failwithf "Entity detected: %A" e.TryFullName
 
 let viewExpr exprIndex input =
   visit (getExpr exprIndex input) ""
 
 let input = """
-//type I1 =
-//   abstract member I1: unit -> int
-//
-//type I2 =
-//   abstract member I2: unit -> int
-//
-//{
-//   new I1 with member __.I1() = 4
-//   interface I2 with member __.I2() = 4
-//}
+type A(i:int) =
+    member x.Value = i
 
-module O1 =
-   let Sqr x y z = x + y + z
+type B(i:int) as b =
+    inherit A(i*2)
+    let a = b.Overload(i)
+    member x.Overload() = a
+    member x.Overload(y: int) = y + y
+    member x.BaseValue = base.Value
 
-type O2 =
-   static member Sqr x y z = x + y + z
-
-O1.Sqr 1 2
+let [<Literal>] lit = 1.0
+let notLit = 1.0
+let callToOverload = B(5).Overload(4)
 """
-viewExpr 3 input
+let pr = checkProject input
+pr.GetAllUsesOfAllSymbols()
+|> Async.RunSynchronously
+|> Seq.iter (fun s -> printfn "%s" s.Symbol.DisplayName)
+let ms = pr.AssemblySignature.Entities.[0].NestedEntities.[0].MembersFunctionsAndValues
+ms |> Seq.iter (fun m -> printfn "%O" m)
 
-getExpr 2 input
+let (=>) a b = a, b
+let obj' (xs: #seq<'a*'b>) =
+  let di = System.Collections.Generic.Dictionary<'a,'b>()
+  for x in xs do
+    if di.ContainsKey (fst x) then
+      di.[fst x] <- snd x
+    else
+    di.Add(fst x, snd x)
+  box di
+
+let (?) (o: obj) (k: string): obj = failwith "never"
+let (?<-) (o: obj) (k: string) (v: obj): unit = failwith "never"
+let ($) (o: obj) (args: obj) = failwith "never"
+
+let di: obj = obj() // [ms.[1] => 1; ms.[2] => 2]
+di?hola <- "hola"
+di?hola$()
+
+
+//di.Add(ms.[0], 0)
+//di.Values |> Seq.head
+//di.Count
+
+let rec typeabbr (t: FSharpType) =
+  if t.IsAbbreviation then typeabbr t.AbbreviatedType else t
+
+let eq (t1: FSharpType) (t2: FSharpType) =
+  t1 = t2 || typeabbr t1 = typeabbr t2
+
+let rec typedef (t: FSharpType) =
+  if t.IsAbbreviation then typedef t.AbbreviatedType else t.TypeDefinition
+
+let findMethod (ent: FSharpEntity) (methName: string) (argTypes: FSharpType list) =
+  ent.MembersFunctionsAndValues |> Seq.tryFind (fun m ->
+    if m.CompiledName = methName then
+      let pars = m.CurriedParameterGroups |> Seq.concat |> Seq.map (fun x -> x.Type) |> Seq.toList
+      List.forall2 eq pars argTypes
+    else
+      false)
+
+getExpr 4 input
 |> function
+    | BasicPatterns.ThisValue t -> ()
+    | BasicPatterns.Let((x, _),_)
+    | BasicPatterns.FSharpFieldGet(Some(BasicPatterns.Value x),_,_)
+    | BasicPatterns.Call(_,_,_,_,[BasicPatterns.Value x;_]) ->
+        printfn "IsBaseValue %b IsConstructorThisValue %b x.IsMemberThisValue %b LiteralValue %A"
+                x.IsBaseValue x.IsConstructorThisValue x.IsMemberThisValue x.LiteralValue
 //   | BasicPatterns.Application(BasicPatterns.Lambda(_, Delay asyncBuilder expr),_,[BasicPatterns.Value b1]) -> printfn "GOTCHA %A" expr
 //   | BasicPatterns.Application(_,_,[arg]) -> printfn "%s" arg.Type.TypeDefinition.FullName
-   | BasicPatterns.Lambda(v1, BasicPatterns.Call(None, meth, _, _, [BasicPatterns.Value v1'])) when v1 = v1' -> printfn "Wrapped Method"
-   | BasicPatterns.Lambda(v, delegateBodyExpr) -> printfn "%A" v.FullType
-   | BasicPatterns.ObjectExpr(objType, BasicPatterns.Call(_,ctor,_,_,_), overrides, interfaceImplementations) -> printfn "%A" ctor.EnclosingEntity.FullName
-   | _ -> failwith "unexpected"
+//   | BasicPatterns.Call(_, meth, typeGenArgs, genArgs, args) ->
+//      findMethod meth.EnclosingEntity meth.CompiledName (args |> List.map (fun a -> a.Type))
+    | BasicPatterns.Const(_, typ) -> printfn "%s" typ.AbbreviatedType.TypeDefinition.FullName
+    | BasicPatterns.Lambda(v1, BasicPatterns.Call(None, meth, _, _, [BasicPatterns.Value v1'])) when v1 = v1' -> printfn "Wrapped Method"
+    | BasicPatterns.Lambda(v, delegateBodyExpr) -> printfn "%A" v.FullType
+    | BasicPatterns.ObjectExpr(objType, BasicPatterns.Call(_,ctor,_,_,_), overrides, interfaceImplementations) -> printfn "%A" ctor.EnclosingEntity.FullName
+    | _ as e -> printfn "%s" e.Type.AbbreviatedType.TypeDefinition.FullName
 
 
+type P(x: int, y: int) =
+  member __.X = x
+  interface System.IEquatable<P> with
+    member __.Equals(p: P) = x = p.X
+
+P(5,6).Equals()
 
 
