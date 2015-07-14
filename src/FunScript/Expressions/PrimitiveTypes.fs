@@ -36,12 +36,12 @@ let private primitiveValues _ _ = function
          | :? byte   as x -> JSExpr.Integer(int x)   
          | :? int16  as x -> JSExpr.Integer(int x)   
          | :? int32  as x -> JSExpr.Integer(x)       
-         | :? int64  as x -> JSExpr.Number(float x)  
-         | :? uint16 as x -> JSExpr.Number(float x)  
-         | :? uint32 as x -> JSExpr.Number(float x)  
-         | :? uint64 as x -> JSExpr.Number(float x)  
-         | :? single as x -> JSExpr.Number(float x)  
-         | :? double as x -> JSExpr.Number(x)        
+         | :? int64  as x -> JSExpr.Float(float x)  
+         | :? uint16 as x -> JSExpr.Float(float x)  
+         | :? uint32 as x -> JSExpr.Float(float x)  
+         | :? uint64 as x -> JSExpr.Float(float x)  
+         | :? single as x -> JSExpr.Float(float x)  
+         | :? double as x -> JSExpr.Float(x)        
          // TODO: our own decimal type?
          | _ ->
             if constType.TypeDefinition.IsEnum

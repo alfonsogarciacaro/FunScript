@@ -155,19 +155,27 @@ let viewExpr exprIndex input =
   visit (getExpr exprIndex input) ""
 
 let input = """
-type A(i:int) =
-    member x.Value = i
+namespace MyNs
 
-type B(i:int) as b =
-    inherit A(i*2)
-    let a = b.Overload(i)
-    member x.Overload() = a
-    member x.Overload(y: int) = y + y
-    member x.BaseValue = base.Value
+type A() =
+  let a = 1
 
-let [<Literal>] lit = 1.0
-let notLit = 1.0
-let callToOverload = B(5).Overload(4)
+//  module MyNestedMod =
+//    let a = 1
+//
+//type A(i:int) =
+//    member x.Value = i
+//
+//type B(i:int) as b =
+//    inherit A(i*2)
+//    let a = b.Overload(i)
+//    member x.Overload() = a
+//    member x.Overload(y: int) = y + y
+//    member x.BaseValue = base.Value
+//
+//let [<Literal>] lit = 1.0
+//let notLit = 1.0
+//let callToOverload = B(5).Overload(4)
 """
 let pr = checkProject input
 pr.GetAllUsesOfAllSymbols()

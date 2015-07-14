@@ -8,7 +8,7 @@ let rec compileArgs (com: ICompiler) (scope: IScopeInfo) (args: FSharpExpr list)
   | [] | [DerivedPatterns.Unit] -> []
   | _ -> args |> List.map (com.CompileExpr scope)
 
-let rec compileArgVars (args: FSVal list) =
+let rec compileArgVars (args: FSRef list) =
   match args with
   | [] -> []
   | [u] when u.FullType.TypeDefinition.FullName = "Microsoft.FSharp.Core.unit" -> []
@@ -41,12 +41,12 @@ let compileBasicPattern (com: ICompiler) (scope: IScopeInfo) = function
       | :? byte   as x -> JSExpr.Integer(int x)   
       | :? int16  as x -> JSExpr.Integer(int x)   
       | :? int32  as x -> JSExpr.Integer(x)       
-      | :? int64  as x -> JSExpr.Number(float x)  
-      | :? uint16 as x -> JSExpr.Number(float x)  
-      | :? uint32 as x -> JSExpr.Number(float x)  
-      | :? uint64 as x -> JSExpr.Number(float x)  
-      | :? single as x -> JSExpr.Number(float x)  
-      | :? double as x -> JSExpr.Number(x)        
+      | :? int64  as x -> JSExpr.Float(float x)  
+      | :? uint16 as x -> JSExpr.Float(float x)  
+      | :? uint32 as x -> JSExpr.Float(float x)  
+      | :? uint64 as x -> JSExpr.Float(float x)  
+      | :? single as x -> JSExpr.Float(float x)  
+      | :? double as x -> JSExpr.Float(x)        
       // TODO: our own decimal type?
       | _ ->
         if constType.TypeDefinition.IsEnum

@@ -59,9 +59,9 @@ let compileMethod (com: ICompiler) (meth: MethodBase) (methRef: JSExpr) =
 *)
 
 let private pipes (com: ICompiler) (ret: ReturnStrategy) (expr: FSharpExpr) =
-  let replaceVars varExprs (lambdaVars: FSVal list) valExprs =
+  let replaceVars varExprs (lambdaVars: FSRef list) valExprs =
     let isNonFreeVar var =
-      List.exists (fun (v: FSVal) -> v.IsEffectivelySameAs var) lambdaVars
+      List.exists (fun (v: FSRef) -> v.IsEffectivelySameAs var) lambdaVars
     let rec replaceVars varExprs valExprs acc =
       match varExprs with
       | [] -> 
@@ -101,16 +101,16 @@ let private pipes (com: ICompiler) (ret: ReturnStrategy) (expr: FSharpExpr) =
   | _ -> None
 
 let private fnDefinition com _ = function
-  | NewDelegate(typ, Lambdas(vars, CompileStatement com ReturnFrom body)) ->
+  | NewDelegate(typ, Lambdas(vars, CompileStatement com Return body)) ->
       buildExpr <| Lambda(vars, body)
-  | Lambda(var, CompileStatement com ReturnFrom body) ->
+  | Lambda(var, CompileStatement com Return body) ->
       buildExpr <| Lambda([var], body)
   | _ -> None
 
 let private application com _ = function
   | Application(f, _, args) ->
     let f = match f with
-            | Lambdas(vars, CompileStatement com ReturnFrom body) -> Lambda(vars, body)
+            | Lambdas(vars, CompileStatement com Return body) -> Lambda(vars, body)
             | CompileExpr com f -> f
     buildExpr <| Apply(f, compileArgs com args)
   | Call(Some(CompileExpr com func), mi, _, _, args) when mi.EnclosingEntity.IsDelegate ->

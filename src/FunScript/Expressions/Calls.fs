@@ -112,7 +112,7 @@ let findMethod (ent: FSharpEntity) (methName: string) (argTypes: FSharpType list
       false)
       
 let compileOperator (com: ICompiler) (scope: IScopeInfo)
-                    (meth: FSVal) (args: FSharpExpr list)  =
+                    (meth: FSRef) (args: FSharpExpr list)  =
   match args with
   | [lhs; rhs] ->
     let opName = meth.DisplayName
